@@ -1,5 +1,6 @@
 import Foundation
 
+// 外観の改善に unslop（Damir Sokolovsky / @heydamir、CC BY 4.0）を参照: https://heydamir.design/unslop
 /// ブラウザ用クライアント（HTML/CSS/JS を1本の生文字列で持つ）。
 /// iOS/Android 版と同じ「ホーム／ショート／アルバム」の3タブ構成で、
 /// スマホ（下タブバー）と Mac（左サイドレール）でレイアウトを切り替える。
@@ -35,17 +36,26 @@ enum WebClientHTML {
     <title>Ark Server</title>
     <style>
     :root {
-        /* 配色は Mac アプリ本体（黒基調）と同じ。色味のない中立のグレーだけで面を作り、
-           青（--accent）は主要ボタン・選択のチェック・進捗のような「操作の目印」にだけ使う。 */
+        /* Mac アプリ本体と中立色の面・青いアクセントを共有する。
+           Web のアクセント面には、文字のコントラストを確保するため濃色を載せる。 */
         --bg: #1B1B1B;      /* 内容側の下地 */
         --bg-1: #262626;    /* サイドバー・上部バー・カードの面 */
         --bg-2: #313131;    /* 面の上の入力欄・ホバー */
         --line: rgba(255,255,255,0.08);
         --accent: #5499FF;
+        /* --accent から派生する色。出どころはここ1か所にし、--accent を変えたら4つとも合わせて直す。
+           color-mix() で導出すると非対応ブラウザで hover などが無効になるため、固定値で持つ。 */
+        --accent-hover: #69A5FF;
+        --accent-pressed: #4D8DEB;
+        --on-accent: var(--bg);
         --accent-soft: rgba(84,153,255,0.18);
+        --accent-faint: rgba(84,153,255,0.12);
         --text: #EDEDED;
         --text-2: #9E9E9E;
         --text-3: rgba(255,255,255,0.38);
+        /* 日本語の強調は500との差に依存せず、主要な操作・項目名・見出しに600を使う。 */
+        --weight-medium: 500;
+        --weight-semibold: 600;
         --select: rgba(255,255,255,0.11);   /* 選択中の行・ボタンの面（色は付けない） */
         --rail: 240px;
         --top: 56px;
@@ -60,6 +70,7 @@ enum WebClientHTML {
         overscroll-behavior-y: none;
     }
     button { font-family: inherit; }
+    button:disabled { cursor: default; opacity: 0.5; }
     .hidden { display: none !important; }
     svg.ico { width: 24px; height: 24px; fill: currentColor; display: block; }
     svg.ico-s { width: 18px; height: 18px; fill: currentColor; display: block; }
@@ -71,10 +82,10 @@ enum WebClientHTML {
         background: var(--bg-1);
         border-bottom: 1px solid var(--line);
     }
-    .brand { display: flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: 0.3px; }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: var(--weight-semibold); }
     .brand-mark {
         width: 28px; height: 20px; border-radius: 6px; background: var(--accent);
-        display: grid; place-items: center; color: #fff;
+        display: grid; place-items: center; color: var(--on-accent);
     }
     .brand-mark svg { width: 12px; height: 12px; }
     .brand-text { font-size: 16px; color: var(--text); white-space: nowrap; }
@@ -104,7 +115,7 @@ enum WebClientHTML {
         display: flex; align-items: center; border: none; background: transparent;
         color: var(--text-2); cursor: pointer; width: 100%;
     }
-    .nav-item.active { color: var(--text); }
+    .nav-item.active { color: var(--text); font-weight: var(--weight-semibold); }
     .nav-ico { display: grid; place-items: center; flex: none; }
 
     /* --- Mac / 広い画面: 左サイドレール --- */
@@ -113,9 +124,9 @@ enum WebClientHTML {
             top: var(--top); bottom: 0; left: 0; width: var(--rail);
             border-right: 1px solid var(--line); padding: 12px 8px; overflow-y: auto;
         }
-        .nav-item { gap: 20px; padding: 0 14px; height: 44px; border-radius: 10px; font-size: 14.5px; font-weight: 500; }
+        .nav-item { gap: 20px; padding: 0 14px; height: 44px; border-radius: 10px; font-size: 14.5px; font-weight: var(--weight-medium); }
         .nav-item:hover { background: rgba(255,255,255,0.07); }
-        .nav-item.active { background: var(--select); font-weight: 700; }
+        .nav-item.active { background: var(--select); }
         .nav-item.active .nav-ico { color: var(--text); }
         .nav-foot { margin-top: 14px; padding: 14px 14px 0; border-top: 1px solid var(--line); color: var(--text-3); font-size: 11.5px; line-height: 1.7; }
         .content { margin-left: var(--rail); padding-top: var(--top); min-height: 100vh; }
@@ -125,7 +136,7 @@ enum WebClientHTML {
     @media (min-width: 901px) and (max-width: 1099px) {
         :root { --rail: 76px; }
         .nav { padding: 8px 4px; }
-        .nav-item { flex-direction: column; gap: 5px; height: auto; padding: 14px 0; font-size: 10px; font-weight: 600; }
+        .nav-item { flex-direction: column; gap: 5px; height: auto; padding: 14px 0; font-size: 10px; font-weight: var(--weight-medium); }
         .nav-foot { display: none; }
     }
 
@@ -138,7 +149,7 @@ enum WebClientHTML {
             border-top: 1px solid var(--line);
             background: var(--bg-1);
         }
-        .nav-item { flex: 1; flex-direction: column; justify-content: center; gap: 3px; font-size: 10px; font-weight: 600; }
+        .nav-item { flex: 1; flex-direction: column; justify-content: center; gap: 3px; font-size: 10px; font-weight: var(--weight-medium); }
         .nav-item.active { color: var(--text); }
         .nav-foot { display: none; }
         .content { padding-top: var(--top); padding-bottom: calc(var(--tabbar) + var(--safe-b)); min-height: 100dvh; }
@@ -158,21 +169,34 @@ enum WebClientHTML {
     .thumb-fallback { background: repeating-linear-gradient(45deg, #1f1f1f, #1f1f1f 10px, #242424 10px, #242424 20px); }
     .pill {
         border: 1px solid var(--line); background: var(--bg-1); color: var(--text);
-        border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+        border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: var(--weight-semibold); cursor: pointer;
         display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
     }
-    .pill:hover { background: var(--bg-2); }
-    .pill.accent { background: var(--accent); color: #fff; border-color: transparent; }
-    .badge-dur {
-        position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.78); color: #fff;
-        font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.3px;
+    .btn-accent { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+    /* 中立のピルの hover・押下は、背景色を差し替えず白を重ねて出す。.danger や .on など状態色のピルにも同じ反応が付く。
+       アクセントのボタンだけは、専用の色（--accent-hover / --accent-pressed）に差し替える。
+       hover はマウス端末だけ（タッチで貼り付かせない）、:active はタッチでも効かせる。
+       以下はすべて同じ詳細度なので、書く順番で勝敗が決まる: hover → 押下、中立 → アクセントの順に並べる。 */
+    @media (hover: hover) {
+        .pill:enabled:hover { box-shadow: inset 0 0 0 999px rgba(255,255,255,0.08); }
+        .btn-accent:enabled:hover { background: var(--accent-hover); box-shadow: none; }
     }
-    .badge-photo { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.7); color: var(--text); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+    .pill:enabled:active { box-shadow: inset 0 0 0 999px rgba(255,255,255,0.16); }
+    .btn-accent:enabled:active { background: var(--accent-pressed); box-shadow: none; }
+    /* 映像上の補足は、同じ背景・文字・角丸で可読性を確保する。 */
+    .chip-on-media {
+        background: rgba(0,0,0,0.7); color: #fff;
+        padding: 2px 6px; border-radius: 4px; font-weight: var(--weight-semibold);
+        font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    }
+    .badge-dur { position: absolute; bottom: 6px; right: 6px; font-size: 11px; }
+    .badge-photo { position: absolute; top: 6px; left: 6px; font-size: 10px; }
 
     /* キーボード操作のフォーカス表示（カードは div + role=button なので自前で出す） */
-    [data-action]:focus-visible, .icon-btn:focus-visible, .pill:focus-visible, .select:focus-visible {
-        outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+    [data-action]:focus-visible, .icon-btn:focus-visible, .pill:focus-visible, .select:focus-visible, .btn-accent:focus-visible {
+        outline: 2px solid var(--accent); outline-offset: 2px;
     }
+    [data-action]:not(button):focus-visible, .chapter:focus-visible { border-radius: 6px; }
 
     /* お気に入りのハート（サムネの左上） */
     .fav-badge {
@@ -190,7 +214,7 @@ enum WebClientHTML {
         display: grid; place-items: center; color: #fff;
     }
     .sel-check svg { width: 14px; height: 14px; fill: currentColor; opacity: 0; }
-    .media-card.selected .sel-check { background: var(--accent); border-color: var(--accent); }
+    .media-card.selected .sel-check { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
     .media-card.selected .sel-check svg { opacity: 1; }
     .media-card.selected .media-thumb { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
     .bulk-bar {
@@ -199,7 +223,7 @@ enum WebClientHTML {
         background: var(--bg-1); border: 1px solid var(--line);
     }
     .bulk-bar.hidden { display: none; }
-    .bulk-count { font-size: 13px; font-weight: 700; color: var(--text); }
+    .bulk-count { font-size: 13px; font-weight: var(--weight-semibold); color: var(--text); }
 
     /* アップロード */
     .upload-bar {
@@ -208,15 +232,15 @@ enum WebClientHTML {
         background: var(--bg-1); border: 1px solid var(--line);
     }
     .upload-bar.hidden { display: none; }
-    .upload-text { font-size: 13px; font-weight: 600; flex: 1 1 220px; min-width: 0; }
+    .upload-text { font-size: 13px; font-weight: var(--weight-semibold); flex: 1 1 220px; min-width: 0; }
     .upload-track { flex: 1 1 160px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.14); overflow: hidden; }
     .upload-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.15s; }
     .dropzone { position: relative; }
     .dropzone.dragging::after {
         content: 'ここにドロップしてアップロード';
         position: absolute; inset: -8px; z-index: 30; border-radius: 16px;
-        border: 2px dashed var(--accent); background: rgba(84,153,255,0.12);
-        display: grid; place-items: center; font-weight: 700; color: var(--text); pointer-events: none;
+        border: 2px dashed var(--accent); background: var(--accent-faint);
+        display: grid; place-items: center; font-weight: var(--weight-semibold); color: var(--text); pointer-events: none;
     }
 
     /* アルバム選択・作成のシート */
@@ -229,7 +253,7 @@ enum WebClientHTML {
     .sheet-item:hover { border-color: var(--accent); }
     .sheet-item .count { margin-left: auto; color: var(--text-3); font-size: 12px; }
     .field { margin-bottom: 14px; }
-    .field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 6px; font-weight: 600; }
+    .field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 6px; font-weight: var(--weight-semibold); }
     .field input, .field select {
         width: 100%; background: var(--bg-2); border: 1px solid var(--line); color: var(--text);
         border-radius: 12px; padding: 12px 14px; font-size: 14px; outline: none;
@@ -246,7 +270,7 @@ enum WebClientHTML {
         background: var(--bg-1); border: 1px solid var(--line); border-radius: 18px;
         width: 100%; max-width: 460px; max-height: 80vh; overflow-y: auto; padding: 22px;
     }
-    .info-card h3 { margin: 0 0 16px; font-size: 17px; }
+    .info-card h3 { margin: 0 0 16px; font-size: 17px; font-weight: var(--weight-semibold); }
     .info-row { display: flex; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
     .info-key { flex: 0 0 108px; color: var(--text-2); }
     .info-val { flex: 1; min-width: 0; word-break: break-word; }
@@ -257,7 +281,7 @@ enum WebClientHTML {
 
     /* 「続きを見る」タブ */
     .crow-empty { display: grid; place-items: center; gap: 10px; padding: 90px 20px; color: var(--text-2); text-align: center; }
-    .crow-empty .big { font-size: 17px; font-weight: 700; color: var(--text); }
+    .crow-empty .big { font-size: 17px; font-weight: var(--weight-semibold); color: var(--text); }
     .cw-left { font-size: 12px; color: var(--text-2); margin-top: 4px; }
 
     /* ============ ホームフィード（「続きを見る」タブも同じ形） ============ */
@@ -286,7 +310,7 @@ enum WebClientHTML {
     }
     .feed-text { min-width: 0; flex: 1; }
     .feed-title {
-        font-size: 15px; font-weight: 600; line-height: 1.35; color: var(--text);
+        font-size: 15px; font-weight: var(--weight-semibold); line-height: 1.35; color: var(--text);
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
     .feed-sub { font-size: 12.5px; color: var(--text-2); margin-top: 5px; line-height: 1.5; }
@@ -298,7 +322,7 @@ enum WebClientHTML {
         background: rgba(255,255,255,0.028);
         border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
     }
-    .shelf-head { display: flex; align-items: center; gap: 9px; padding: 0 16px 14px; font-size: 17px; font-weight: 800; }
+    .shelf-head { display: flex; align-items: center; gap: 9px; padding: 0 16px 14px; font-size: 17px; font-weight: var(--weight-semibold); }
     .shelf-head .ico { color: var(--text-2); }
     .shelf-row {
         display: flex; gap: 12px; overflow-x: auto; padding: 0 16px 6px;
@@ -313,7 +337,7 @@ enum WebClientHTML {
     .short-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .short-card:hover .short-thumb { border-color: rgba(255,255,255,0.3); }
     .short-title {
-        margin-top: 8px; font-size: 12.5px; font-weight: 600; line-height: 1.35; color: var(--text);
+        margin-top: 8px; font-size: 12.5px; font-weight: var(--weight-semibold); line-height: 1.35; color: var(--text);
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
 
@@ -321,8 +345,8 @@ enum WebClientHTML {
     .page-pad { padding: 20px 16px 40px; max-width: 1900px; margin: 0 auto; }
     @media (min-width: 901px) { .page-pad { padding: 24px; } }
     .section-title {
-        font-size: 13px; font-weight: 700; color: var(--text-2); letter-spacing: 1.2px;
-        margin: 26px 0 12px; text-transform: uppercase;
+        font-size: 14px; font-weight: var(--weight-semibold); color: var(--text);
+        margin: 26px 0 12px;
     }
     .section-title:first-child { margin-top: 4px; }
     .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 16px; }
@@ -334,14 +358,13 @@ enum WebClientHTML {
     .album-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); }
     .album-empty svg { width: 44px; height: 44px; }
     .album-count {
-        position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.65); color: #fff;
-        font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 8px;
+        position: absolute; bottom: 8px; right: 8px; font-size: 12px;
     }
-    .album-name { margin-top: 9px; font-size: 13.5px; font-weight: 600; line-height: 1.4; }
+    .album-name { margin-top: 9px; font-size: 13.5px; font-weight: var(--weight-semibold); line-height: 1.4; }
     .album-name.photo { color: var(--text); }
 
     .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-    .detail-title { font-size: 20px; font-weight: 800; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .detail-title { font-size: 20px; font-weight: var(--weight-semibold); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .toolbar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
     .select {
         background: var(--bg-1); border: 1px solid var(--line); color: var(--text);
@@ -357,7 +380,7 @@ enum WebClientHTML {
     .media-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .media-card:hover .media-thumb { border-color: rgba(255,255,255,0.3); }
     .media-name {
-        margin-top: 8px; font-size: 13px; font-weight: 600; line-height: 1.4;
+        margin-top: 8px; font-size: 13px; font-weight: var(--weight-semibold); line-height: 1.4;
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
 
@@ -380,8 +403,13 @@ enum WebClientHTML {
     .shorts-overlay { position: absolute; inset: auto 0 0 0; padding: 16px 16px 20px; pointer-events: none; z-index: 3;
         background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0.35) 55%, transparent); }
     @media (max-width: 900px) { .shorts-overlay { padding-right: 76px; } }
-    .shorts-count { font-size: 11.5px; color: var(--text-2); font-weight: 700; letter-spacing: 0.5px; }
-    .shorts-title { font-size: 15px; font-weight: 700; margin: 4px 0 10px; text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+    /* 明るい映像でも読めるよう、件数・アルバム名の背後に一定の暗さを確保する。 */
+    .shorts-count {
+        display: block; width: fit-content; max-width: 100%; font-size: 12px; line-height: 1.5;
+        overflow-wrap: anywhere;
+    }
+    .shorts-count:empty { display: none; }
+    .shorts-title { font-size: 15px; font-weight: var(--weight-semibold); margin: 4px 0 10px; text-shadow: 0 2px 6px rgba(0,0,0,0.9);
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .shorts-bar {
         height: 8px; border-radius: 4px; background: rgba(255,255,255,0.25); cursor: pointer;
@@ -421,7 +449,7 @@ enum WebClientHTML {
         background: rgba(30,30,30,0.96); border: 1px solid var(--line); border-radius: 14px;
     }
     @media (min-width: 901px) { .shorts-zoom { right: 12px; bottom: 110px; } }
-    .shorts-zoom label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 10px; text-align: center; color: var(--text-2); }
+    .shorts-zoom label { display: block; font-size: 12px; font-weight: var(--weight-semibold); margin-bottom: 10px; text-align: center; color: var(--text-2); }
     .shorts-zoom input { width: 100%; accent-color: var(--accent); }
     .shorts-zoom .hint { margin-top: 8px; font-size: 11px; line-height: 1.5; color: var(--text-3); text-align: center; }
 
@@ -437,7 +465,7 @@ enum WebClientHTML {
         background: radial-gradient(circle at center, rgba(40,40,40,0.96), rgba(0,0,0,0.96));
     }
     .playback-error.hidden { display: none; }
-    .playback-error-title { font-size: 17px; font-weight: 800; }
+    .playback-error-title { font-size: 17px; font-weight: var(--weight-semibold); }
     .playback-error-message { max-width: 520px; color: var(--text-2); font-size: 13px; line-height: 1.7; }
     .playback-error-progress { color: var(--text-2); font-size: 12px; min-height: 18px; }
     .stage-close {
@@ -481,7 +509,7 @@ enum WebClientHTML {
     }
     .chapter-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .chapter-time {
-        display: block; margin-top: 5px; font-size: 11px; font-weight: 700;
+        display: block; margin-top: 5px; font-size: 11px; font-weight: var(--weight-semibold);
         color: var(--text-2); font-variant-numeric: tabular-nums;
     }
     .chapter:hover .chapter-thumb { border-color: var(--accent); }
@@ -493,12 +521,12 @@ enum WebClientHTML {
     }
 
     .watch-info { padding: 16px; }
-    .watch-title { font-size: 17px; font-weight: 700; line-height: 1.4; margin: 0; }
+    .watch-title { font-size: 17px; font-weight: var(--weight-semibold); line-height: 1.4; margin: 0; }
     .watch-sub { font-size: 12.5px; color: var(--text-2); margin-top: 6px; }
     .watch-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
     .danger { background: rgba(255,69,58,0.16); border-color: rgba(255,69,58,0.5); color: #FF6B6B; }
     .watch-side { border-top: 1px solid var(--line); }
-    .side-head { font-size: 13px; font-weight: 700; color: var(--text-2); padding: 14px 16px 8px; letter-spacing: 0.6px; }
+    .side-head { font-size: 13px; font-weight: var(--weight-semibold); color: var(--text-2); padding: 14px 16px 8px; }
     .un-item { display: flex; gap: 10px; padding: 8px 12px; cursor: pointer; align-items: flex-start; }
     .un-item:hover { background: rgba(255,255,255,0.05); }
     .un-item.current { background: var(--select); }
@@ -506,7 +534,8 @@ enum WebClientHTML {
     .un-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .un-info { min-width: 0; flex: 1; padding-top: 2px; }
     .un-title { font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .un-item.current .un-title { color: var(--text); font-weight: 700; }
+    .un-item.current .un-title { color: var(--text); font-weight: var(--weight-semibold); }
+    .playing-label { color: var(--text); font-weight: var(--weight-semibold); }
     .un-meta { font-size: 11px; color: var(--text-2); margin-top: 4px; }
 
     @media (min-width: 901px) {
@@ -564,11 +593,13 @@ enum WebClientHTML {
     #login-modal { display: none; position: fixed; inset: 0; background: rgba(27,27,27,0.98); z-index: 200; justify-content: center; align-items: center; }
     #login-modal.open { display: flex; }
     .login-card { background: var(--bg-1); border: 1px solid var(--line); border-radius: 20px; padding: 36px 28px; width: 90%; max-width: 340px; text-align: center; }
-    .login-card h2 { color: var(--text); margin: 10px 0 6px; font-size: 20px; }
+    .login-card > .ico { width: 32px; height: 32px; margin: 0 auto 12px; color: var(--text-2); }
+    .login-card h2 { color: var(--text); margin: 0 0 8px; font-size: 20px; font-weight: var(--weight-semibold); }
     .login-card p { color: var(--text-2); font-size: 13px; margin: 0 0 22px; line-height: 1.6; }
     .pin-input { width: 100%; background: rgba(255,255,255,0.06); border: 1px solid var(--line); color: #fff; font-size: 24px; letter-spacing: 8px; text-align: center; padding: 14px; border-radius: 14px; outline: none; }
     .pin-input:focus { border-color: var(--accent); }
-    .login-btn { margin-top: 16px; width: 100%; background: var(--accent); color: #fff; font-weight: 600; font-size: 16px; padding: 14px; border: none; border-radius: 14px; cursor: pointer; }
+    /* 背景と文字色はここでも持つ（.btn-accent と併用して hover・押下の色を受ける）。クラスが外れても透明にならない。 */
+    .login-btn { margin-top: 16px; width: 100%; background: var(--accent); color: var(--on-accent); font-weight: var(--weight-semibold); font-size: 16px; padding: 14px; border: none; border-radius: 14px; cursor: pointer; }
     .login-error { color: #FF6B6B; font-size: 13px; margin-top: 12px; min-height: 18px; }
 
     .toast {
@@ -592,7 +623,7 @@ enum WebClientHTML {
     <header class="masthead" id="masthead">
         <div class="brand">
             <span class="brand-mark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
-            <span class="brand-text">Mac Media</span>
+            <span class="brand-text">Ark Server</span>
         </div>
         <div class="masthead-spacer desktop-only"></div>
         <div class="search-wrap" id="search-wrap">
@@ -615,7 +646,7 @@ enum WebClientHTML {
 
     <!-- ================= ナビ（Mac=左レール / スマホ=下タブ） ================= -->
     <nav class="nav" id="nav">
-        <button class="nav-item active" data-tab="home">
+        <button class="nav-item active" data-tab="home" aria-current="page">
             <span class="nav-ico"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3.1 2.6 11.2h2.9V21h5.1v-5.9h2.8V21h5.1v-9.8h2.9z"/></svg></span>
             <span class="nav-label">ホーム</span>
         </button>
@@ -655,7 +686,7 @@ enum WebClientHTML {
                     <div class="shorts-tap" id="shorts-tap"></div>
                     <div class="shorts-pause" id="shorts-pause"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
                     <div class="shorts-overlay">
-                        <div class="shorts-count" id="shorts-count"></div>
+                        <div class="shorts-count chip-on-media" id="shorts-count"></div>
                         <div class="shorts-title" id="shorts-title"></div>
                         <div class="shorts-bar" id="shorts-bar">
                             <div class="shorts-bar-fill" id="shorts-bar-fill"></div>
@@ -693,7 +724,7 @@ enum WebClientHTML {
                         <option value="modifiedAsc">更新日が古い順</option>
                         <option value="lastOpenedDesc">最後に開いた順</option>
                     </select>
-                    <button class="pill accent" id="album-shorts-btn">
+                    <button class="pill btn-accent" id="album-shorts-btn">
                         <svg class="ico-s" viewBox="0 0 24 24"><path d="M13.4 2.1c.5 2.7-.7 4.1-2.1 5.6-1.6 1.7-3.5 3.3-3.5 6.2a6.2 6.2 0 0 0 12.4 0c0-2.2-1-4.2-2.5-5.8.1 1.7-.5 3-1.7 3.7.8-3.8-1.1-7.4-2.6-9.7"/></svg>
                         ショート再生
                     </button>
@@ -718,7 +749,7 @@ enum WebClientHTML {
                     <button class="pill" id="bulk-fav">お気に入り</button>
                     <button class="pill" id="bulk-move">移動</button>
                     <button class="pill" id="bulk-trash">ゴミ箱へ</button>
-                    <button class="pill accent hidden" id="bulk-restore">復元</button>
+                    <button class="pill btn-accent hidden" id="bulk-restore">復元</button>
                     <button class="pill danger" id="bulk-purge">完全に削除</button>
                     <button class="pill danger" id="bulk-system-trash">実ファイルをMacのゴミ箱へ</button>
                     <button class="pill" id="bulk-cancel">やめる</button>
@@ -749,7 +780,7 @@ enum WebClientHTML {
                         <div class="playback-error-title" id="playback-error-title">再生できませんでした</div>
                         <div class="playback-error-message" id="playback-error-message"></div>
                         <div class="playback-error-progress" id="playback-error-progress"></div>
-                        <button class="pill accent" id="convert-btn">1080pへ変換して再生</button>
+                        <button class="pill btn-accent" id="convert-btn">1080pへ変換して再生</button>
                     </div>
                 </div>
                 <div class="chapters hidden" id="chapters"></div>
@@ -785,7 +816,7 @@ enum WebClientHTML {
                         <button class="pill" id="manga-toggle">通常モード</button>
                         <button class="pill" id="watch-shorts">ショートで見る</button>
                         <button class="pill" id="trash-btn">ゴミ箱へ</button>
-                        <button class="pill accent hidden" id="restore-btn">ゴミ箱から復元</button>
+                        <button class="pill btn-accent hidden" id="restore-btn">ゴミ箱から復元</button>
                         <button class="pill danger" id="purge-btn">完全に削除</button>
                         <button class="pill danger" id="system-trash-btn">実ファイルをMacのゴミ箱へ</button>
                     </div>
@@ -797,11 +828,11 @@ enum WebClientHTML {
 
     <div id="login-modal">
         <div class="login-card">
-            <div style="font-size:42px">🔒</div>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM9 8V6a3 3 0 0 1 6 0v2z"/></svg>
             <h2>PIN認証</h2>
             <p>このサーバーは保護されています。<br>Macの画面に表示されているPINを入力してください。</p>
             <input type="password" inputmode="numeric" class="pin-input" id="pin-input" placeholder="••••••" maxlength="12">
-            <button class="login-btn" id="login-btn">ロック解除</button>
+            <button class="login-btn btn-accent" id="login-btn">ロック解除</button>
             <div class="login-error" id="login-error"></div>
         </div>
     </div>
@@ -831,7 +862,7 @@ enum WebClientHTML {
             </div>
             <div style="display:flex; gap:10px">
                 <button class="pill" id="create-cancel" style="flex:1; justify-content:center">やめる</button>
-                <button class="pill accent" id="create-ok" style="flex:1; justify-content:center">作成</button>
+                <button class="pill btn-accent" id="create-ok" style="flex:1; justify-content:center">作成</button>
             </div>
             <div class="login-error" id="create-error"></div>
         </div>
@@ -881,6 +912,7 @@ enum WebClientHTML {
         albumFiltered: [],
         playerOrigin: null,
         playerIndex: 0,
+        playbackFailed: false,   // 現在の動画が再生エラー中か（再生リストの「再生中」ラベルの出し分け用）
         isPlayerMini: false,
         queue: [],
         chapterTimes: [],   // 10等分サムネの各時刻（秒）
@@ -1529,7 +1561,10 @@ enum WebClientHTML {
         }
         var items = document.querySelectorAll('.nav-item');
         for (var j = 0; j < items.length; j++) {
-            items[j].classList.toggle('active', items[j].dataset.tab === tab);
+            var isCurrent = items[j].dataset.tab === tab;
+            items[j].classList.toggle('active', isCurrent);
+            if (isCurrent) items[j].setAttribute('aria-current', 'page');
+            else items[j].removeAttribute('aria-current');
         }
         document.body.classList.toggle('shorts-mode', tab === 'shorts');
         el('search-wrap').classList.toggle('hidden', tab === 'shorts');
@@ -1684,7 +1719,7 @@ enum WebClientHTML {
             html += '<div class="feed-card" role="button" tabindex="0" data-action="play-continue" data-index="' + j + '">' +
                 '<div class="feed-thumb" data-id="' + esc(vid.id) + '" data-watch-id="' + esc(vid.id) + '">' +
                     imgTag(thumbURL(vid.id, true), '') +
-                    '<div class="badge-dur">残り ' + formatDur(left) + '</div>' +
+                    '<div class="badge-dur chip-on-media">残り ' + formatDur(left) + '</div>' +
                     (isFavorite(vid.id) ? FAV_ICON : '') + watchedBarHTML(vid) + '</div>' +
                 '<div class="feed-meta">' +
                     '<div class="avatar"><svg class="ico-s" viewBox="0 0 24 24"><path d="M10 8.6 15.5 12 10 15.4zM21 6.5c-.2-1.7-.9-2.9-2.7-3.1C16.4 3.1 13.9 3 12 3s-4.4.1-6.3.4C3.9 3.6 3.2 4.8 3 6.5 2.9 7.7 2.8 9.3 2.8 12s.1 4.3.2 5.5c.2 1.7.9 2.9 2.7 3.1 1.9.3 4.4.4 6.3.4s4.4-.1 6.3-.4c1.8-.2 2.5-1.4 2.7-3.1.1-1.2.2-2.8.2-5.5s-.1-4.3-.2-5.5"/></svg></div>' +
@@ -1750,7 +1785,7 @@ enum WebClientHTML {
     }
 
     function feedCardHTML(v, index) {
-        var dur = !isPhoto(v) && v.duration > 0 ? '<div class="badge-dur">' + formatDur(v.duration) + '</div>' : '';
+        var dur = !isPhoto(v) && v.duration > 0 ? '<div class="badge-dur chip-on-media">' + formatDur(v.duration) + '</div>' : '';
         return '<div class="feed-card" role="button" tabindex="0" data-action="play-home" data-index="' + index + '">' +
             '<div class="feed-thumb" data-id="' + esc(v.id) + '" data-watch-id="' + esc(v.id) + '">' +
                 imgTag(thumbURL(v.id, true), '') + dur +
@@ -1772,7 +1807,7 @@ enum WebClientHTML {
             var v = items[i];
             cards += '<div class="short-card" role="button" tabindex="0" data-action="play-short" data-id="' + esc(v.id) + '">' +
                 '<div class="short-thumb">' + imgTag(thumbURL(v.id, true), '') +
-                    '<div class="badge-dur">' + formatDur(v.duration) + '</div></div>' +
+                    '<div class="badge-dur chip-on-media">' + formatDur(v.duration) + '</div></div>' +
                 '<div class="short-title">' + esc(cleanTitle(v.filename)) + '</div></div>';
         }
         return '<div class="shelf">' +
@@ -1884,7 +1919,7 @@ enum WebClientHTML {
                     '" data-name="' + esc(a.name.toLowerCase()) + '">' +
                 '<div class="album-thumb"><div class="album-empty">' +
                     '<svg viewBox="0 0 24 24" fill="currentColor">' + a.icon + '</svg></div>' +
-                    '<div class="album-count">' + virtualAlbumCount(a.id) + '</div></div>' +
+                    '<div class="album-count chip-on-media">' + virtualAlbumCount(a.id) + '</div></div>' +
                 '<div class="album-name">' + esc(a.name) + '</div></div>';
         }
         return html;
@@ -1924,13 +1959,13 @@ enum WebClientHTML {
                 ? imgTag(thumbURL(a.coverVideoID, false), '')
                 : '<div class="album-empty"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg></div>';
             var card = '<div class="album-card" role="button" tabindex="0" data-action="open-album" data-id="' + esc(a.id) + '" data-name="' + esc(a.name.toLowerCase()) + '">' +
-                '<div class="album-thumb">' + inner + '<div class="album-count">' + a.videoCount + '</div></div>' +
+                '<div class="album-thumb">' + inner + '<div class="album-count chip-on-media">' + a.videoCount + '</div></div>' +
                 '<div class="album-name' + (a.type === 'photo' ? ' photo' : '') + '">' + esc(a.name) + '</div></div>';
             if (a.name === 'ALL VIDEOS' || a.name === 'ALL PHOTOS' || a.type === 'mixed') lib += card;
             else if (a.type === 'photo') { pho += card; hasPho = true; }
             else { vid += card; hasVid = true; }
         }
-        var html = '<div class="toolbar"><button class="pill accent" id="new-album-btn">＋ 新規アルバム</button></div>';
+        var html = '<div class="toolbar"><button class="pill btn-accent" id="new-album-btn">＋ 新規アルバム</button></div>';
         html += '<div class="section-title">マイライブラリ</div><div class="album-grid">' + virtualAlbumCards() + '</div>';
         html += '<div class="section-title">ライブラリ</div><div class="album-grid">' + lib + '</div>';
         if (hasVid) html += '<div class="section-title">動画アルバム</div><div class="album-grid">' + vid + '</div>';
@@ -2190,8 +2225,8 @@ enum WebClientHTML {
         for (var i = state.albumRendered; i < end; i++) {
             var v = list[i];
             var photo = isPhoto(v);
-            var badge = photo ? '<div class="badge-photo">写真</div>'
-                : (v.duration > 0 ? '<div class="badge-dur">' + formatDur(v.duration) + '</div>' : '');
+            var badge = photo ? '<div class="badge-photo chip-on-media">写真</div>'
+                : (v.duration > 0 ? '<div class="badge-dur chip-on-media">' + formatDur(v.duration) + '</div>' : '');
             var sel = state.selected.indexOf(v.id) >= 0;
             html += '<div class="media-card' + (sel ? ' selected' : '') + '" role="button" tabindex="0"' +
                     ' data-action="play-album" data-index="' + i + '" data-id="' + esc(v.id) + '">' +
@@ -2497,11 +2532,34 @@ enum WebClientHTML {
 
     var conversionTimer = null;
 
+    /// 再生リストの現在行に出す状態ラベル。再生エラー中は「再生中」と出さない。
+    /// 写真を開いている間は再生リスト自体が CSS で隠れる（.mode-photo .watch-side）ので、写真用の文言は持たない。
+    function nowPlayingLabelText() {
+        return state.playbackFailed ? '再生できません' : '再生中';
+    }
+
+    /// エラー状態の切り替え。状態は state.playbackFailed だけが持つ。
+    /// 描画済みの現在行ラベルの文言だけを差し替える（リスト全体を作り直すとサムネが再取得され、スクロールも戻されるため）。
+    function setPlaybackFailed(failed) {
+        if (state.playbackFailed === failed) return;
+        state.playbackFailed = failed;
+        var label = document.querySelector('#up-next .un-item.current .playing-label');
+        if (label) label.textContent = nowPlayingLabelText();
+    }
+
     function hidePlaybackError() {
         if (conversionTimer) { clearTimeout(conversionTimer); conversionTimer = null; }
         el('playback-error').classList.add('hidden');
         el('playback-error-progress').textContent = '';
         el('convert-btn').disabled = false;
+        setPlaybackFailed(false);
+    }
+
+    /// 再生ステージの旧メディア要素を破棄する。先に DOM から外すので、src を消した際に発火する error は
+    /// リスナー側の isConnected 判定で確実に捨てられる（同期・非同期のどちらで発火しても）。
+    function disposeMediaElement(node) {
+        node.remove();
+        if (node.tagName === 'VIDEO') { node.pause(); node.removeAttribute('src'); node.load(); }
     }
 
     function showPlaybackError(media, video) {
@@ -2515,6 +2573,7 @@ enum WebClientHTML {
             ' 1080pへ変換すると再生できる可能性があります。変換用プロキシはサーバー全体で1本だけ保持されるため、ほかの端末が利用中のプロキシは置き換わります。';
         el('playback-error-progress').textContent = '';
         el('playback-error').classList.remove('hidden');
+        setPlaybackFailed(true);
     }
 
     function prepareCurrentMedia() {
@@ -2578,10 +2637,7 @@ enum WebClientHTML {
 
         var stage = el('stage');
         var old = stage.querySelector('#main-media');
-        if (old) {
-            if (old.tagName === 'VIDEO') { old.pause(); old.removeAttribute('src'); old.load(); }
-            old.remove();
-        }
+        if (old) disposeMediaElement(old);
 
         el('watch-title').textContent = cleanTitle(media.filename);
         el('watch-title').title = media.filename;
@@ -2618,7 +2674,11 @@ enum WebClientHTML {
                 if (saved > 2 && (!video.duration || saved < video.duration - 5)) video.currentTime = saved;
             }, { once: true });
             video.addEventListener('canplay', hidePlaybackError, { once: true });
-            video.addEventListener('error', function () { showPlaybackError(media, video); });
+            video.addEventListener('error', function () {
+                // 切り替え・閉じる際に破棄した旧 video が遅れて error を発火しても、今の動画の表示に波及させない
+                if (!video.isConnected) return;
+                showPlaybackError(media, video);
+            });
             video.addEventListener('timeupdate', function () {
                 if (video.currentTime > 2) setProgress(media.id, video.currentTime);
                 updateActiveChapter(video.currentTime);
@@ -2749,12 +2809,13 @@ enum WebClientHTML {
         for (var i = from; i < to; i++) {
             var v = list[i];
             var photo = isPhoto(v);
-            var badge = photo ? '' : (v.duration > 0 ? '<div class="badge-dur">' + formatDur(v.duration) + '</div>' : '');
-            html += '<div class="un-item' + (i === state.playerIndex ? ' current' : '') + '" role="button" tabindex="0" data-action="play-index" data-index="' + i + '">' +
+            var badge = photo ? '' : (v.duration > 0 ? '<div class="badge-dur chip-on-media">' + formatDur(v.duration) + '</div>' : '');
+            var isCurrent = i === state.playerIndex;
+            html += '<div class="un-item' + (isCurrent ? ' current' : '') + '"' + (isCurrent ? ' aria-current="true"' : '') + ' role="button" tabindex="0" data-action="play-index" data-index="' + i + '">' +
                 '<div class="un-thumb" data-watch-id="' + esc(v.id) + '">' +
                     imgTag(thumbURL(v.id, !photo), '') + badge + watchedBarHTML(v) + '</div>' +
                 '<div class="un-info"><div class="un-title">' + esc(cleanTitle(v.filename)) + '</div>' +
-                '<div class="un-meta">' + (photo ? '写真' : '動画') + ' • ' + esc(albumNameOf(v)) + '</div></div></div>';
+                '<div class="un-meta">' + (isCurrent ? '<span class="playing-label">' + nowPlayingLabelText() + '</span> • ' : '') + (photo ? '写真' : '動画') + ' • ' + esc(albumNameOf(v)) + '</div></div></div>';
         }
         side.innerHTML = html;
         var cur = side.querySelector('.un-item.current');
@@ -2947,10 +3008,7 @@ enum WebClientHTML {
         var stage = el('stage');
         var media = stage.querySelector('#main-media');
         hidePlaybackError();
-        if (media) {
-            if (media.tagName === 'VIDEO') { media.pause(); media.removeAttribute('src'); media.load(); }
-            media.remove();
-        }
+        if (media) disposeMediaElement(media);
         // 閉じたあともサムネ読み込みが走り続けないよう、合図の番号を進めて打ち切る
         state.chapterToken++;
         state.chapterTimes = [];
