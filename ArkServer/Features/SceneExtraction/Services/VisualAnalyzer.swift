@@ -35,7 +35,12 @@ nonisolated struct VisualAnalyzer: Sendable {
   private let luminanceWeight = 0.8
   private let edgeWeight = 0.2
 
-  func analyze(url: URL, settings: AnalysisSettings) async throws -> [VisualFeaturePoint] {
+  /// - Parameter timeRange: 解析する区間（秒）。nil なら動画全体。長い動画の一部だけを調べたいときに使う。
+  func analyze(
+    url: URL,
+    settings: AnalysisSettings,
+    timeRange: ClosedRange<Double>? = nil
+  ) async throws -> [VisualFeaturePoint] {
     let asset = AVURLAsset(url: url)
     guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
       throw VisualAnalyzerError.missingVideoTrack
@@ -57,6 +62,12 @@ nonisolated struct VisualAnalyzer: Sendable {
       throw VisualAnalyzerError.cannotAddOutput
     }
     reader.add(output)
+    if let timeRange {
+      reader.timeRange = CMTimeRange(
+        start: CMTime(seconds: timeRange.lowerBound, preferredTimescale: 600),
+        duration: CMTime(seconds: timeRange.upperBound - timeRange.lowerBound, preferredTimescale: 600)
+      )
+    }
 
     guard reader.startReading() else {
       throw VisualAnalyzerError.readerFailed(reader.error?.localizedDescription ?? "開始できませんでした．")
