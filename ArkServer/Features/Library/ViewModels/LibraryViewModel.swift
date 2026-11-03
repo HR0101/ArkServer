@@ -352,12 +352,7 @@ class LibraryViewModel: ObservableObject {
         isSecondaryInstance = !Self.acquireInstanceLock(at: appRootURL.appendingPathComponent(".instance.lock"))
         if isSecondaryInstance {
             DispatchQueue.main.async {
-                let alert = NSAlert()
-                alert.messageText = "Ark Server は既に起動しています"
-                alert.informativeText = "別のインスタンス（例: Xcodeからの実行と通常起動）が同じライブラリを開いています．データの二重書き込みによる消失を防ぐため，このインスタンスは終了します．"
-                alert.alertStyle = .warning
-                alert.runModal()
-                NSApplication.shared.terminate(nil)
+                Self.presentDuplicateInstanceAlertAndQuit()
             }
             return
         }
@@ -375,6 +370,32 @@ class LibraryViewModel: ObservableObject {
             }
         }
     }
+
+    /// 二重起動側のインスタンスで警告を出し、確実に終了する。
+    ///
+    /// このインスタンスはライブラリを読み込まず何も保存しないので、強制終了しても失われるものはない。
+    /// 「OK」が押せない・終了が効かない場合でも、プロセスが残り続けないようにする。
+    private static func presentDuplicateInstanceAlertAndQuit() {
+        // 主スレッドが詰まっていても動くよう、別のキューから強制終了を予約しておく。
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + duplicateInstanceAutoQuitSeconds) {
+            exit(0)
+        }
+        // Xcode などから起動すると、アプリが前面に出ずアラートが他のウィンドウの後ろに残ることがある。
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.messageText = "Ark Server は既に起動しています"
+        alert.informativeText = "別のインスタンス（例: Xcodeからの実行と通常起動）が同じライブラリを開いています．データの二重書き込みによる消失を防ぐため，このインスタンスは終了します．（\(Int(duplicateInstanceAutoQuitSeconds))秒たつと自動で終了します）"
+        alert.alertStyle = .warning
+        alert.runModal()
+
+        NSApplication.shared.terminate(nil)
+        // terminate が取り消された・止まった場合の保険。
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 2) { exit(0) }
+    }
+
+    /// 二重起動の警告を出してから、操作がなくても自動で終了するまでの秒数。
+    private static let duplicateInstanceAutoQuitSeconds: Double = 30
 
     private func prepareStorageDirectories(_ directories: [URL]) -> Bool {
         for directory in directories {
