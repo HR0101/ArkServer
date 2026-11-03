@@ -226,42 +226,21 @@ class ServerViewModel: NSObject, ObservableObject, NetServiceDelegate {
 
     // MARK: - 総当たり攻撃対策
     // IP ごとに連続失敗回数を記録し、一定回数を超えたら指数バックオフでロックアウトする。
-    // サーバーのワーカースレッドから触られるため NSLock で保護する。
-    private let authLock = NSLock()
-    private var authFailures: [String: (count: Int, lockedUntil: Date?)] = [:]
-    private let maxAttemptsBeforeLockout = 5
+    // 状態と判定は MediaServerKit の PINLockoutTracker に集約。
+    // 5回目以降は失敗のたびに 30s → 60s → 120s … 最大 1 時間ロックする。
+    // 通常の認証と削除時のみPINの両方が、必ずこの tracker を通ること。
+    private let pinLockout = PINLockoutTracker()
 
-    private func isLockedOut(_ ip: String) -> Bool {
-        authLock.lock(); defer { authLock.unlock() }
-        if let until = authFailures[ip]?.lockedUntil, until > Date() { return true }
-        return false
-    }
-
-    /// PIN を実際に提示したリクエストの成否のみを記録する（PIN 未提示の初回アクセスは数えない）
-    private func recordAuthResult(ip: String, success: Bool) {
-        authLock.lock(); defer { authLock.unlock() }
-        if success {
-            authFailures[ip] = nil
-        } else {
-            var entry = authFailures[ip] ?? (count: 0, lockedUntil: nil)
-            entry.count += 1
-            // 5回目以降は失敗のたびに 30s → 60s → 120s … 最大 1 時間ロック
-            if let delay = PINSecurity.lockoutDelay(failCount: entry.count, maxAttempts: maxAttemptsBeforeLockout) {
-                entry.lockedUntil = Date().addingTimeInterval(delay)
-            }
-            authFailures[ip] = entry
-        }
+    /// PIN の一致とロックアウトを検証する。
+    /// PIN が無いリクエスト（ログイン前の初回アクセス等）は失敗としてカウントしない。
+    private func checkPIN(_ request: HttpRequest) -> Bool {
+        guard let pin = extractPIN(from: request) else { return false }
+        return pinLockout.verify(pin: pin, expected: authPINCache, ip: request.address ?? "unknown")
     }
 
     private func isAuthorized(_ request: HttpRequest) -> Bool {
         if !authEnabledCache { return true }
-        let ip = request.address ?? "unknown"
-        if isLockedOut(ip) { return false }
-        // PIN が無いリクエスト（ログイン前の初回アクセス等）は失敗としてカウントしない
-        guard let pin = extractPIN(from: request) else { return false }
-        let ok = PINSecurity.constantTimeEquals(pin, authPINCache)
-        recordAuthResult(ip: ip, success: ok)
-        return ok
+        return checkPIN(request)
     }
 
     /// アクセスログに残すパスから認証情報を取り除く。
@@ -317,7 +296,7 @@ class ServerViewModel: NSObject, ObservableObject, NetServiceDelegate {
             if self.authEnabledCache {
                 ok = self.isAuthorized(request)
             } else if self.requirePINForDeletionCache && !self.authPINCache.isEmpty {
-                ok = self.extractPIN(from: request).map { PINSecurity.constantTimeEquals($0, self.authPINCache) } ?? false
+                ok = self.checkPIN(request)
             } else {
                 ok = true
             }
