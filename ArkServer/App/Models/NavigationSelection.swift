@@ -10,6 +10,8 @@ enum NavigationSelection: Hashable {
   case history
   case trash
   case sceneExtraction
+  /// 曲に合わせてライブラリの動画を自動で編集する画面。
+  case musicVideo
   /// 動画・画像のアルバムを表紙つきで一覧するページ。
   case albums
   case album(UUID)

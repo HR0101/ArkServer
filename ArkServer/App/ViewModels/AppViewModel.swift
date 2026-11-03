@@ -30,6 +30,8 @@ final class AppViewModel: ObservableObject {
   let playbackSettings = PlaybackSettings()
   /// シーン抽出画面の再生位置，解析結果，GTラベルを画面切替後も保持します．
   let sceneExtraction = SceneExtractionViewModel()
+  /// ミュージックビデオ作成の曲・素材・プレビューを画面切替後も保持します．
+  let musicVideo = MusicVideoViewModel()
 
   private var cancellables = Set<AnyCancellable>()
   private var sceneExtractionReturnSelection: NavigationSelection = .home

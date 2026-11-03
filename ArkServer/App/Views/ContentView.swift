@@ -318,6 +318,11 @@ struct ContentView: View {
                             viewModel: viewModel.sceneExtraction,
                             onClose: viewModel.closeSceneExtraction
                         )
+                    case .musicVideo:
+                        MusicVideoView(
+                            viewModel: viewModel.musicVideo,
+                            dataManager: dataManager
+                        )
                     case .albums:
                         AlbumOverviewView(
                             dataManager: dataManager,
