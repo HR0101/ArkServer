@@ -122,7 +122,7 @@ struct SidebarRailView: View {
         var count: Int? = nil
     }
 
-    /// 区切り線で分ける3つのまとまり：ホーム／ライブラリ全体／自分用の入口。
+    /// 区切り線で分ける4つのまとまり：ホーム／ライブラリ全体／自分用の入口／作成ツール。
     private var groups: [[Destination]] {
         let c = countsModel.counts
         return [
@@ -139,6 +139,9 @@ struct SidebarRailView: View {
                 Destination(id: "continue", title: "続きを見る", symbol: "play.circle", target: .continueWatching, count: c.continueWatching),
                 Destination(id: "history", title: "再生履歴", symbol: "clock.arrow.circlepath", target: .history, count: c.history),
                 Destination(id: "trash", title: "ゴミ箱", symbol: "trash", target: .trash, count: c.trash),
+            ],
+            [
+                Destination(id: "musicVideo", title: "ミュージックビデオ", symbol: "music.note.tv", target: .musicVideo),
             ],
         ]
     }
