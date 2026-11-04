@@ -84,10 +84,10 @@ struct MediaDeletionConfirmationSheet: View {
     VStack(alignment: .leading, spacing: 16) {
       HStack(spacing: 10) {
         Label("削除方法を選んでください", systemImage: "trash")
-          .font(.system(size: 17, weight: .semibold))
+          .font(.appTitle)
         Spacer()
         Text("\(items.count.formatted())件を選択中")
-          .font(.system(size: 13).monospacedDigit())
+          .font(.appBody.monospacedDigit())
           .foregroundStyle(NeomorphicTheme.muted)
       }
 

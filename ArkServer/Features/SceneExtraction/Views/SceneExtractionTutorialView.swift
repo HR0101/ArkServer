@@ -253,12 +253,12 @@ struct SceneExtractionTutorialView: View {
 
             VStack(alignment: .leading, spacing: 7) {
               Text("STEP \(step.id)")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.appCaptionStrong)
                 .foregroundStyle(NeomorphicTheme.muted)
               Text(step.title)
                 .font(.appLargeTitle)
               Text(step.summary)
-                .font(.system(size: 15))
+                .font(.appHeadline.weight(.regular))
                 .foregroundStyle(NeomorphicTheme.muted)
             }
           }
@@ -280,7 +280,7 @@ struct SceneExtractionTutorialView: View {
               .foregroundStyle(NeomorphicTheme.caution)
             VStack(alignment: .leading, spacing: 3) {
               Text("ヒント")
-                .font(.appBody.weight(.semibold))
+                .font(.appBodyStrong)
               Text(step.tip)
                 .font(.appBody)
                 .foregroundStyle(NeomorphicTheme.muted)
@@ -306,7 +306,7 @@ struct SceneExtractionTutorialView: View {
         } label: {
           VStack(spacing: 5) {
             Text("\(step.id)")
-              .font(.appCaption.bold())
+              .font(.appCaptionStrong)
               .frame(width: 28, height: 28)
               // いまの手順は白い丸に暗い数字（再生ボタンと同じ表し方）、ほかは薄い面。
               .background(
@@ -342,7 +342,7 @@ struct SceneExtractionTutorialView: View {
       Spacer()
 
       Text("\(selectedStepIndex + 1) / \(SceneExtractionTutorialContent.steps.count)")
-        .font(.system(size: 12).monospacedDigit())
+        .font(.appCaption.monospacedDigit())
         .foregroundStyle(NeomorphicTheme.muted)
 
       Spacer()
@@ -411,9 +411,9 @@ struct SceneExtractionTutorialView: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack {
         Text(glossaryTerm.term)
-          .font(.appBody.weight(.semibold))
+          .font(.appBodyStrong)
         Text(glossaryTerm.category.rawValue)
-          .font(.system(size: 11, weight: .medium))
+          .font(.appMicroStrong)
           .foregroundStyle(NeomorphicTheme.muted)
           .padding(.horizontal, 7)
           .padding(.vertical, 3)

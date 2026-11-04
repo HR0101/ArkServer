@@ -14,7 +14,7 @@ struct DuplicateCheckCountBadge: View {
                 .font(.appCaption)
                 .foregroundStyle(NeomorphicTheme.muted)
             Text(count.formatted())
-                .font(.system(size: 22, weight: .semibold))
+                .font(.appMetric)
                 .monospacedDigit()
                 .foregroundStyle(NeomorphicTheme.ink)
         }
@@ -39,7 +39,7 @@ struct ResourceGauge: View {
                 Text(label)
             } currentValueLabel: {
                 Text("\(Int(value))％")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.appMicroStrong)
                     .monospacedDigit()
             }
             .gaugeStyle(.accessoryCircularCapacity)
@@ -48,7 +48,7 @@ struct ResourceGauge: View {
             .frame(width: 52, height: 52)
 
             Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.appMicroStrong)
                 .foregroundStyle(.secondary)
         }
     }

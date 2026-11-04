@@ -116,7 +116,7 @@ struct SketchCleanupView: View {
                 }
                 .overlay(alignment: .bottomTrailing) {
                     Text("\(candidate.judgement.kind.displayName) \(Int(candidate.judgement.score * 100))%")
-                        .font(.appMicro.weight(.semibold))
+                        .font(.appMicroStrong)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)

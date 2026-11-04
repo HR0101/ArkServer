@@ -62,7 +62,7 @@ struct CandidateTimelineView: View {
           .fill(.white.opacity(0.2))
           .frame(width: 1, height: 28)
         Text(timeText(tickTime))
-          .font(.system(size: 11, design: .monospaced))
+          .font(.appMonoMicro)
           .foregroundStyle(NeomorphicTheme.muted)
       }
       .offset(x: max(0, xPosition(for: tickTime, width: width) - 18))

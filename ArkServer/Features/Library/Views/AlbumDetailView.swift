@@ -480,7 +480,7 @@ struct AlbumDetailView: View {
         .sheet(isPresented: $showSplitSheet) {
             VStack(spacing: 20) {
                 Text("分割再生")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.appTitle)
                 if let video = splitTargetVideo {
                     Text(video.originalFilename)
                         .font(.appBody)
@@ -796,7 +796,7 @@ struct AlbumDetailView: View {
                 .font(.system(size: 42, weight: .light))
                 .foregroundStyle(.secondary)
             Text("メディアがありません")
-                .font(.appTitle.weight(.semibold))
+                .font(.appTitle)
             Text("ファイルやフォルダをここにドロップして追加")
                 .font(.appBody)
                 .foregroundStyle(.secondary)
@@ -819,7 +819,7 @@ struct AlbumDetailView: View {
                     .font(.system(size: 44))
                     .foregroundStyle(Color.accentColor)
                 Text("ドロップして追加")
-                    .font(.appTitle.weight(.semibold))
+                    .font(.appTitle)
             }
         }
         .overlay(

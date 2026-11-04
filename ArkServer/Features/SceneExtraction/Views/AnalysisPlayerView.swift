@@ -98,7 +98,7 @@ struct AnalysisPlayerView: View {
       Spacer()
 
       Text("\(timeText(viewModel.currentTime)) / \(timeText(viewModel.duration))")
-        .font(.system(size: 13, design: .monospaced))
+        .font(.appMonoBody)
         .foregroundStyle(NeomorphicTheme.muted)
     }
     .buttonStyle(.borderless)

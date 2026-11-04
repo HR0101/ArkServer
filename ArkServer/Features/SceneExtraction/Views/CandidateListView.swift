@@ -129,9 +129,9 @@ struct CandidateListView: View {
       VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 10) {
           Text("ピーク \(timeText(candidate.peakTime))")
-            .font(.appBody.weight(.semibold))
+            .font(.appBodyStrong)
           Text(String(format: "score %.3f", candidate.score))
-            .font(.system(size: 12, design: .monospaced))
+            .font(.appMonoCaption)
             .foregroundStyle(.secondary)
           labelBadge(candidate.userLabel)
         }
@@ -156,7 +156,7 @@ struct CandidateListView: View {
             format: .number.precision(.fractionLength(2))
           )
         }
-        .font(.system(size: 12, design: .monospaced))
+        .font(.appMonoCaption)
         .textFieldStyle(.roundedBorder)
         .frame(maxWidth: 245)
 
@@ -169,7 +169,7 @@ struct CandidateListView: View {
       Spacer()
 
       Text(String(format: "A %.2f  B %.2f  C %.2f", candidate.audioScore, candidate.visualScore, candidate.transitionScore))
-        .font(.system(size: 11, design: .monospaced))
+        .font(.appMonoMicro)
         .foregroundStyle(NeomorphicTheme.muted)
 
       HStack(spacing: 5) {
@@ -257,7 +257,7 @@ struct CandidateListView: View {
 
   private func labelBadge(_ label: CandidateLabel?) -> some View {
     Text(label?.displayName ?? "未判定")
-      .font(.appMicro.weight(.semibold))
+      .font(.appMicroStrong)
       .foregroundStyle(label.map(labelColor) ?? NeomorphicTheme.muted)
       .padding(.horizontal, 7)
       .padding(.vertical, 2)
