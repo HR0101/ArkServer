@@ -33,15 +33,25 @@ struct LibraryStorageEnvironment {
     self.moveFileToSystemTrash = moveFileToSystemTrash
   }
 
+  /// 環境変数 `ARKSERVER_DATA_PARENT` があれば、ライブラリと退避ファイルの置き場を、その下に切り替える。
+  /// 自動テスト用: テスト用に起動したアプリが、実際のライブラリ(`~/Movies`)を開かず、
+  /// 使用中のアプリとロックを取り合わないようにする。指定が無ければ、ふだんと同じ場所を使う。
+  private static var dataParentOverride: URL? {
+    guard let path = ProcessInfo.processInfo.environment["ARKSERVER_DATA_PARENT"], !path.isEmpty else { return nil }
+    return URL(fileURLWithPath: path, isDirectory: true)
+  }
+
   static let live = LibraryStorageEnvironment(
     moviesDirectory: {
-      FileManager.default.urls(
+      if let override = dataParentOverride { return override.appendingPathComponent("Movies", isDirectory: true) }
+      return FileManager.default.urls(
         for: .moviesDirectory,
         in: .userDomainMask
       ).first
     },
     downloadsDirectory: {
-      FileManager.default.urls(
+      if let override = dataParentOverride { return override.appendingPathComponent("Downloads", isDirectory: true) }
+      return FileManager.default.urls(
         for: .downloadsDirectory,
         in: .userDomainMask
       ).first
