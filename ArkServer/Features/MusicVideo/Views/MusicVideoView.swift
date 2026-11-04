@@ -554,10 +554,11 @@ struct MusicVideoView: View {
         .disabled(viewModel.isWorking)
       }
       MusicVideoFoldout(title: "素材の解析本数", summary: "最大\(viewModel.sourceLimit)本") {
-        MusicVideoField(title: "解析に使う動画の本数", detail: sourceLimitDetail) {
-          MusicVideoChoices(options: MusicVideoSourceLimit.choices, title: { "\($0)本" }, selection: $viewModel.sourceLimit)
-            .accessibilityIdentifier("musicvideo.sourceLimit")
-        }
+        MusicVideoParameterBar(
+          title: "解析に使う動画の本数", options: MusicVideoSourceLimit.choices,
+          valueLabel: { "\($0)本" }, selection: $viewModel.sourceLimit, detail: sourceLimitDetail
+        )
+        .accessibilityIdentifier("musicvideo.sourceLimit")
         .disabled(viewModel.isWorking)
       }
     }
