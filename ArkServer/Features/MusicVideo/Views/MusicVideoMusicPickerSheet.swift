@@ -7,7 +7,14 @@ import UniformTypeIdentifiers
 /// 曲を置いてあるフォルダから、曲を探して選ぶシート。フォルダは一度選べば覚える。
 struct MusicVideoMusicPickerSheet: View {
   @ObservedObject var viewModel: MusicVideoViewModel
+  /// 試聴の状態。画面の更新を受けるため、ViewModel の中のものをここでも監視する。
+  @ObservedObject private var preview: MusicPreviewPlayer
   @Environment(\.dismiss) private var dismiss
+
+  init(viewModel: MusicVideoViewModel) {
+    self.viewModel = viewModel
+    _preview = ObservedObject(wrappedValue: viewModel.preview)
+  }
 
   struct MusicFile: Identifiable, Hashable, Sendable {
     let url: URL
@@ -71,6 +78,11 @@ struct MusicVideoMusicPickerSheet: View {
         Text(footerText)
           .font(.appCaption)
           .foregroundStyle(NeomorphicTheme.muted)
+        if let message = preview.failureMessage {
+          Label(message, systemImage: "exclamationmark.triangle.fill")
+            .font(.appCaption)
+            .foregroundStyle(NeomorphicTheme.caution)
+        }
         Spacer()
         Button("閉じる") { dismiss() }
           .keyboardShortcut(.cancelAction)
@@ -80,6 +92,8 @@ struct MusicVideoMusicPickerSheet: View {
     .frame(minWidth: 640, idealWidth: 700, minHeight: 520, idealHeight: 620)
     .appSheet()
     .task(id: viewModel.musicFolderURL) { await load() }
+    // シートを閉じたら、試聴の音も止める。
+    .onDisappear { viewModel.preview.stop() }
   }
 
   @ViewBuilder
@@ -96,27 +110,28 @@ struct MusicVideoMusicPickerSheet: View {
       placeholder(icon: "music.note", message: files.isEmpty ? "このフォルダに曲が見つかりませんでした" : "条件に合う曲がありません")
     } else {
       List(visibleFiles) { file in
-        Button {
-          viewModel.chooseMusic(file.url)
-          dismiss()
-        } label: {
-          HStack(spacing: 10) {
-            Image(systemName: "music.note")
-              .foregroundStyle(NeomorphicTheme.muted)
-              .frame(width: 18)
-            Text(file.title)
-              .font(.appBody)
-              .lineLimit(1)
-              .truncationMode(.middle)
-            Spacer(minLength: 8)
-            Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
-              .font(.appMicro.monospacedDigit())
-              .foregroundStyle(NeomorphicTheme.muted)
+        HStack(spacing: 10) {
+          // 左の再生ボタンで試聴、曲名の側を押すとその曲を使う。
+          MusicPreviewButton(preview: preview, url: file.url) { viewModel.togglePreview(file.url) }
+          Button {
+            viewModel.chooseMusic(file.url)
+            dismiss()
+          } label: {
+            HStack(spacing: 10) {
+              Text(file.title)
+                .font(.appBody)
+                .lineLimit(1)
+                .truncationMode(.middle)
+              Spacer(minLength: 8)
+              Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                .font(.appMicro.monospacedDigit())
+                .foregroundStyle(NeomorphicTheme.muted)
+            }
+            .contentShape(Rectangle())
           }
-          .contentShape(Rectangle())
+          .buttonStyle(.plain)
+          .accessibilityLabel("\(file.title)を使う")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(file.title)
       }
       .listStyle(.plain)
     }

@@ -1,8 +1,9 @@
-// ArkServer/Features/MusicVideo/Views/MusicVideoSettingsComponents.swift
+// ArkServer/Common/DesignSystem/SettingsComponents.swift
 
 import SwiftUI
 
-// 設定画面のような「見出し + 行をまとめた面」で画面を組むための部品。
+// 設定画面のような「見出し + 行をまとめた面」で画面を組むための共通部品（一般的な設定画面の見た目に倣う）。
+// 詳細設定ページとミュージックビデオ画面が使う。
 //
 //   セクション名（控えめな小さい文字）
 //   ┌──────────────────────────────────────────┐
@@ -14,11 +15,11 @@ import SwiftUI
 //
 // アイコン付きの見出しや色付きの面は使わない。色は、スイッチ・決定ボタン・選択中の印だけにする。
 
-/// 画面を中央の1列に収める幅。
-let musicVideoColumnWidth: CGFloat = 760
+/// 画面を中央の1列に収める幅（参考にした設定画面は約730pt）。
+let settingsColumnWidth: CGFloat = 760
 
 /// セクション名と、その下の内容。
-struct MVSection<Content: View>: View {
+struct SettingsSection<Content: View>: View {
   let title: String
   var footer: String? = nil
   @ViewBuilder var content: Content
@@ -26,7 +27,7 @@ struct MVSection<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       Text(title)
-        .font(.appBody.weight(.medium))
+        .font(.appBodyStrong)
         .foregroundStyle(NeomorphicTheme.muted)
         .padding(.horizontal, 2)
         .accessibilityAddTraits(.isHeader)
@@ -43,7 +44,7 @@ struct MVSection<Content: View>: View {
 }
 
 /// 行をまとめる角丸の面。行の間に細い区切り線を入れる。
-struct MVRowGroup<Content: View>: View {
+struct SettingsGroup<Content: View>: View {
   @ViewBuilder var content: Content
 
   var body: some View {
@@ -64,7 +65,7 @@ struct MVRowGroup<Content: View>: View {
 }
 
 /// 1行。左に項目名と薄い説明、右に操作。
-struct MVRow<Leading: View, Control: View>: View {
+struct SettingsRow<Leading: View, Control: View>: View {
   let title: String
   var detail: String? = nil
   @ViewBuilder var leading: Leading
@@ -75,7 +76,7 @@ struct MVRow<Leading: View, Control: View>: View {
       leading
       VStack(alignment: .leading, spacing: 3) {
         Text(title)
-          .font(.appBody.weight(.medium))
+          .font(.appBodyStrong)
           .foregroundStyle(NeomorphicTheme.ink)
           .lineLimit(2)
         if let detail {
@@ -94,7 +95,7 @@ struct MVRow<Leading: View, Control: View>: View {
   }
 }
 
-extension MVRow where Leading == EmptyView {
+extension SettingsRow where Leading == EmptyView {
   init(title: String, detail: String? = nil, @ViewBuilder control: () -> Control) {
     self.title = title
     self.detail = detail
@@ -104,12 +105,12 @@ extension MVRow where Leading == EmptyView {
 }
 
 /// 行の右に置く、小さな操作ボタン（「変更」のような見た目）。
-struct MVSmallButtonStyle: ButtonStyle {
+struct QuietButtonStyle: ButtonStyle {
   @Environment(\.isEnabled) private var isEnabled
 
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .font(.appCaption.weight(.medium))
+      .font(.appCaptionStrong)
       .foregroundStyle(NeomorphicTheme.ink.opacity(isEnabled ? 1 : 0.4))
       .padding(.horizontal, 11)
       .padding(.vertical, 5)
@@ -121,12 +122,12 @@ struct MVSmallButtonStyle: ButtonStyle {
   }
 }
 
-extension ButtonStyle where Self == MVSmallButtonStyle {
-  static var mvSmall: MVSmallButtonStyle { MVSmallButtonStyle() }
+extension ButtonStyle where Self == QuietButtonStyle {
+  static var quiet: QuietButtonStyle { QuietButtonStyle() }
 }
 
 /// 行の右に置く、スイッチ。
-struct MVSwitch: View {
+struct SettingsSwitch: View {
   let title: String
   @Binding var isOn: Bool
 

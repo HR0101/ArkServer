@@ -8,8 +8,28 @@ nonisolated struct CutPlanner: Sendable {
   var style: MusicVideoCutStyle = .standard
   /// これより短いカットは作らない（拍が速すぎる曲では切り替えの間隔を倍にする）。
   var minimumCutDuration = 0.3
+  /// これより長いカットは作らない（nil なら制限しない）。拍の数を減らして収める。
+  /// 最短と同時に守れないときは、最長を優先する。
+  var maximumCutDuration: Double?
+  /// 盛り上がりに映像の動きを合わせる強さ。
+  var motionMatching: MotionMatching = .standard
+  /// 同じ動画をどれだけ避けるか。
+  var variety: VideoVariety = .standard
+  /// 切り替えの位置を、小節の頭にそろえるか。
+  var alignment: CutAlignment = .bar
   /// 1カットごとに試す素材候補の数。多いほど動きの一致度が上がる。
   var candidateAttemptsPerCut = 40
+
+  init() {}
+
+  init(style: MusicVideoCutStyle, tuning: MusicVideoCutTuning) {
+    self.style = style
+    minimumCutDuration = tuning.minimumCutDuration
+    maximumCutDuration = tuning.maximumCutDuration
+    motionMatching = tuning.motionMatching
+    variety = tuning.variety
+    alignment = tuning.alignment
+  }
 
   func plan(
     analysis: MusicAnalysis,
@@ -39,19 +59,17 @@ nonisolated struct CutPlanner: Sendable {
       }
 
       // 曲の終わりに短い余りが出るなら、今のカットを曲の終わりまで延ばして吸収する。
+      // 最長を決めているときは、最長を超えるなら吸収しない。
       let remainingAfter = analysis.duration - end
       if remainingAfter > 0, remainingAfter < minimumCutDuration,
-         pool.contains(where: { $0.duration >= analysis.duration - start }) {
+         pool.contains(where: { $0.duration >= analysis.duration - start }),
+         maximumCutDuration.map({ analysis.duration - start <= $0 + 1e-9 }) ?? true {
         end = analysis.duration
       }
       let length = end - start
       guard length > 0 else { break }
 
-      // 狙う動きの大きさ: 段階ごとの目安と、その時点の連続的な盛り上がりの平均。
-      let midpoint: Double = start + length / 2
-      let levelTarget: Double = intensity.targetMotion
-      let energyTarget: Double = analysis.energy(at: midpoint)
-      let target: Double = (levelTarget + energyTarget) / 2
+      let target = Self.targetMotion(intensity: intensity, start: start, length: length, analysis: analysis)
       guard let choice = pickClip(
         length: length,
         target: target,
@@ -92,33 +110,64 @@ nonisolated struct CutPlanner: Sendable {
     return grid
   }
 
-  /// 現在位置から次のカット境界までの拍数。
-  /// 長いカット(2拍以上)は小節の頭に揃え、拍が速すぎる曲では最短時間を満たすまで倍にする。
-  private func nextStep(from index: Int, intensity: MusicIntensity, grid: [Double]) -> Int {
+  /// 盛り上がりの段階 `intensity` で、1カットに使う拍の数。
+  /// 拍が速すぎる曲では最短時間を満たすまで倍にし、最長が決まっていれば、その長さに収まるまで減らす。
+  /// 画面の説明（「静かな所は約2.0秒ごと」）にも同じ計算を使う。
+  func effectiveBeats(for intensity: MusicIntensity, beatInterval: Double) -> Int {
     var beats = max(1, style.beatsPerCut(for: intensity))
-    let beatInterval = averageInterval(grid: grid, around: index)
     while Double(beats) * beatInterval < minimumCutDuration, beats < 16 {
       beats *= 2
     }
+    if let maximumCutDuration, beatInterval > 0 {
+      let allowed = max(1, Int((maximumCutDuration / beatInterval + 1e-9).rounded(.down)))
+      beats = min(beats, allowed)
+    }
+    return beats
+  }
+
+  /// 現在位置から次のカット境界までの拍数。
+  /// 長いカット(2拍以上)は小節の頭に揃える(`alignment` が `.bar` のとき)。
+  private func nextStep(from index: Int, intensity: MusicIntensity, grid: [Double]) -> Int {
+    let beatInterval = averageInterval(grid: grid, around: index)
+    let beats = effectiveBeats(for: intensity, beatInterval: beatInterval)
     let remainingSteps = max(1, grid.count - 1 - index)
 
-    // 格子の先頭(0秒)は拍ではない。最初のカットは1拍目までの導入部にするか、
-    // 導入部が短すぎるなら最初の小節の終わりまで続ける。
-    if index == 0 {
-      let introGap = grid[1] - grid[0]
-      return min(introGap >= minimumCutDuration ? 1 : beats + 1, remainingSteps)
-    }
-
-    // 以降は、小節(beats 拍)の頭に境界を揃える。拍の番号は格子の番号 - 1。
     var step = beats
-    if beats >= 2 {
+    if index == 0 {
+      // 格子の先頭(0秒)は拍ではない。最初のカットは1拍目までの導入部にするか、
+      // 導入部が短すぎるなら最初の小節の終わりまで続ける。
+      let introGap = grid[1] - grid[0]
+      step = introGap >= minimumCutDuration ? 1 : beats + 1
+    } else if beats >= 2, alignment == .bar {
+      // 以降は、小節(beats 拍)の頭に境界を揃える。拍の番号は格子の番号 - 1。
       let remainder = (index - 1) % beats
       if remainder != 0 {
         let toBoundary = beats - remainder
         step = toBoundary >= max(1, beats / 2) ? toBoundary : toBoundary + beats
       }
     }
-    return min(step, remainingSteps)
+    step = min(step, remainingSteps)
+
+    // 揃えた結果が最短に足りないときは、拍の位置を保ったまま延ばす。
+    while step < remainingSteps, grid[index + step] - grid[index] < minimumCutDuration - 1e-9 {
+      step += 1
+    }
+
+    // 揃えた結果が最長を超えるときは、拍の位置を保ったまま短くする（最短と両立しないときは最長を優先）。
+    if let maximumCutDuration {
+      while step > 1, grid[index + step] - grid[index] > maximumCutDuration + 1e-9 {
+        step -= 1
+      }
+    }
+    return step
+  }
+
+  /// カットが狙う動きの大きさ(0〜1)。段階ごとの目安と、その時点の連続的な盛り上がりの平均。
+  static func targetMotion(intensity: MusicIntensity, start: Double, length: Double, analysis: MusicAnalysis) -> Double {
+    let midpoint: Double = start + length / 2
+    let levelTarget: Double = intensity.targetMotion
+    let energyTarget: Double = analysis.energy(at: midpoint)
+    return (levelTarget + energyTarget) / 2
   }
 
   private func averageInterval(grid: [Double], around index: Int) -> Double {
@@ -170,10 +219,10 @@ nonisolated struct CutPlanner: Sendable {
           continue
         }
 
-        var score = -2 * abs(motion - target)
-        if hasAlternative, avoidVideoIDs.contains(profile.videoID) { score -= 1.0 }
-        score -= 0.05 * Double(usage[profile.videoID] ?? 0)
-        if (usedRanges[profile.videoID] ?? []).contains(where: { $0.overlaps(range) }) { score -= 0.8 }
+        var score = -motionMatching.weight * abs(motion - target)
+        if hasAlternative, avoidVideoIDs.contains(profile.videoID) { score -= variety.avoidLastPenalty }
+        score -= variety.usagePenalty * Double(usage[profile.videoID] ?? 0)
+        if (usedRanges[profile.videoID] ?? []).contains(where: { $0.overlaps(range) }) { score -= variety.overlapPenalty }
         score += 0.05 * Double.random(in: 0...1, using: &generator)
 
         if best == nil || score > best!.score {
@@ -224,10 +273,12 @@ nonisolated struct CutPlanner: Sendable {
       if index + 1 < plan.cuts.count { avoid.insert(plan.cuts[index + 1].videoID) }
     }
 
-    let midpoint: Double = original.timelineStart + original.duration / 2
-    let levelTarget: Double = original.intensity.targetMotion
-    let energyTarget: Double = analysis.energy(at: midpoint)
-    let target: Double = (levelTarget + energyTarget) / 2
+    let target = Self.targetMotion(
+      intensity: original.intensity,
+      start: original.timelineStart,
+      length: original.duration,
+      analysis: analysis
+    )
 
     // カットの番号ごとに乱数を変える(同じ種でも、別のカットは別の選び方になる)。
     var generator = SeededGenerator(seed: seed &+ UInt64(index) &* 0x9E37_79B9_7F4A_7C15)

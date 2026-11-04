@@ -4,51 +4,35 @@ struct MediaShortcutSettingsSection: View {
     @AppStorage(MediaShortcutSettings.versionKey) private var settingsVersion = 0
 
     var body: some View {
-        Section("ショートカットキー") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("一覧")
-                    .font(.appCaption.bold())
-                    .foregroundStyle(.secondary)
-                ForEach(MediaShortcutAction.libraryActions) { action in
-                    MediaShortcutAssignmentRow(action: action)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("動画")
-                    .font(.appCaption.bold())
-                    .foregroundStyle(.secondary)
-                ForEach(MediaShortcutAction.videoActions) { action in
-                    MediaShortcutAssignmentRow(action: action)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("差分切り替え再生")
-                    .font(.appCaption.bold())
-                    .foregroundStyle(.secondary)
-                ForEach(MediaShortcutAction.variantActions) { action in
-                    MediaShortcutAssignmentRow(action: action)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("画像")
-                    .font(.appCaption.bold())
-                    .foregroundStyle(.secondary)
-                ForEach(MediaShortcutAction.photoActions) { action in
-                    MediaShortcutAssignmentRow(action: action)
-                }
-            }
+        VStack(alignment: .leading, spacing: 28) {
+            category("一覧", actions: MediaShortcutAction.libraryActions)
+            category("動画", actions: MediaShortcutAction.videoActions)
+            category("差分切り替え再生", actions: MediaShortcutAction.variantActions)
+            category("画像", actions: MediaShortcutAction.photoActions)
 
             if hasDuplicateAssignments {
                 Label("同じキーが複数の操作に割り当てられています．画面ごとの先に判定された操作が優先されます．", systemImage: "exclamationmark.triangle")
                     .font(.appCaption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(NeomorphicTheme.caution)
             }
 
-            Button("既定値に戻す") {
-                MediaShortcutSettings.resetDefaults()
+            SettingsGroup {
+                SettingsRow(title: "既定値に戻す", detail: "すべてのショートカットキーを初期の割り当てに戻します．") {
+                    Button("戻す") {
+                        MediaShortcutSettings.resetDefaults()
+                    }
+                    .buttonStyle(.quiet)
+                }
+            }
+        }
+    }
+
+    private func category(_ title: String, actions: [MediaShortcutAction]) -> some View {
+        SettingsSection(title: title) {
+            SettingsGroup {
+                ForEach(actions) { action in
+                    MediaShortcutAssignmentRow(action: action)
+                }
             }
         }
     }
@@ -75,14 +59,17 @@ private struct MediaShortcutAssignmentRow: View {
     @State private var isCapturing = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(action.settingsTitle)
+        HStack(alignment: .center, spacing: 10) {
+            // セクション名（一覧・動画・画像…）と重なる「一覧: 」のような接頭辞は省く。
+            Text(action.settingsTitle.components(separatedBy: ": ").last ?? action.settingsTitle)
+                .font(.appBody.weight(.medium))
+                .foregroundStyle(NeomorphicTheme.ink)
             Spacer(minLength: 12)
             FlowLayout(spacing: 6) {
                 ForEach(keys) { key in
                     HStack(spacing: 4) {
                         Text(key.displayName)
-                            .font(.system(size: 12, design: .monospaced).weight(.semibold))
+                            .font(.appMonoCaption.weight(.medium))
                         Button {
                             MediaShortcutSettings.removeKey(key, for: action)
                         } label: {
@@ -95,7 +82,7 @@ private struct MediaShortcutAssignmentRow: View {
                     }
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(Color.primary.opacity(0.08), in: Capsule())
+                    .background(NeomorphicTheme.control, in: Capsule())
                 }
             }
             Button {
@@ -107,15 +94,17 @@ private struct MediaShortcutAssignmentRow: View {
                 Label(isCapturing ? "キーを押してください" : "キーを追加", systemImage: isCapturing ? "keyboard" : "plus.circle")
                     .font(.appCaption)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.quiet)
             .help(isCapturing ? "登録したいキーを押してください．Escでキャンセルします．" : "キーを押して追加")
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(minHeight: 48)
         .focusable()
         .focused($isCaptureFocused)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isCapturing ? Color.accentColor.opacity(0.12) : Color.clear)
+            Rectangle()
+                .fill(isCapturing ? NeomorphicTheme.accent.opacity(0.12) : Color.clear)
         )
         .onKeyPress(phases: .down, action: captureKeyPress)
         .onChange(of: settingsVersion) { _, _ in

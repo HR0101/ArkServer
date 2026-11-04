@@ -12,6 +12,8 @@ enum NavigationSelection: Hashable {
   case sceneExtraction
   /// 曲に合わせてライブラリの動画を自動で編集する画面。
   case musicVideo
+  /// 詳細設定のページ。設定中は左のサイドバーが項目の一覧に切り替わる。
+  case settings(SettingsPane)
   /// 動画・画像のアルバムを表紙つきで一覧するページ。
   case albums
   case album(UUID)

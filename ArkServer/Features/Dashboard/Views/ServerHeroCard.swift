@@ -9,7 +9,7 @@ struct ServerHeroCard: View {
 
   var body: some View {
     NeomorphicTile(padding: DS.cardPadding) {
-      VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 16) {
         CardHeader(icon: "network", tint: NeomorphicTheme.accent, title: "サーバーの状態")
         statusRow
 
@@ -46,11 +46,11 @@ struct ServerHeroCard: View {
     HStack(spacing: 12) {
       StatusDot(active: webServerManager.isRunning)
       Text(webServerManager.isRunning ? "配信中" : "停止中")
-        .font(.system(size: 30, weight: .bold, design: .default))
+        .font(.appStatus)
       if webServerManager.isRunning {
         // 稼働時間は補足なので、状態の文字より小さく控えめに添える。
         Text("稼働 \(webServerManager.uptimeString)")
-          .font(.system(size: 13).monospacedDigit())
+          .font(.appBody.monospacedDigit())
           .foregroundStyle(NeomorphicTheme.muted)
           .padding(.top, 8)
       }
@@ -59,7 +59,7 @@ struct ServerHeroCard: View {
         // 停止は主役の操作ではない（誤って押したくもない）ので、塗りつぶさない。
         Button(action: toggleServer) {
           Label("停止", systemImage: "stop.fill")
-            .font(.system(size: 13, weight: .medium))
+            .font(.appBodyStrong)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
         }
@@ -69,7 +69,7 @@ struct ServerHeroCard: View {
       } else {
         Button(action: toggleServer) {
           Label("開始", systemImage: "power")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.appBodyStrong)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
@@ -82,7 +82,7 @@ struct ServerHeroCard: View {
   // MARK: 稼働中：いまの接続先
 
   private var runningDetails: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: 16) {
       VStack(alignment: .leading, spacing: 8) {
         Text("ブラウザの接続先")
           .font(.appCaption)
@@ -101,7 +101,7 @@ struct ServerHeroCard: View {
               if let target = URL(string: url) { NSWorkspace.shared.open(target) }
             } label: {
               Label("開く", systemImage: "arrow.up.forward.app")
-                .font(.system(size: 13, weight: .medium))
+                .font(.appBodyStrong)
             }
             .buttonStyle(.bordered)
             .tint(NeomorphicTheme.ink)
@@ -124,7 +124,7 @@ struct ServerHeroCard: View {
           QRCodeView(text: url, size: 96)
           VStack(alignment: .leading, spacing: 6) {
             Text("スマホで読み取る")
-              .font(.system(size: 13, weight: .semibold))
+              .font(.appBodyStrong)
             Text(webServerManager.authEnabled
               ? "カメラで読み取ると，ブラウザで接続先が開きます．開いたら「PIN認証」の6桁のPINを入力します．"
               : "カメラで読み取ると，ブラウザで接続先が開きます．（PIN認証は無効です）")
@@ -146,7 +146,7 @@ struct ServerHeroCard: View {
   private var connectionSteps: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("接続方法")
-        .font(.system(size: 13, weight: .semibold))
+        .font(.appBodyStrong)
       step(1, "端末をMacと同じWi-Fiに接続します．")
       step(2, "iPhoneアプリでこのMacを選ぶか，ブラウザで接続先を開きます．")
       step(3, webServerManager.authEnabled
@@ -163,7 +163,7 @@ struct ServerHeroCard: View {
   private func step(_ number: Int, _ text: String) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 10) {
       Text("\(number)")
-        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+        .font(.appMicroStrong.monospacedDigit())
         .foregroundStyle(NeomorphicTheme.muted)
         .frame(width: 20, height: 20)
         .background(Circle().fill(NeomorphicTheme.control))

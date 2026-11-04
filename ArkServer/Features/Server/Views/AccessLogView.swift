@@ -54,16 +54,16 @@ struct AccessLogView: View {
                 Table(filteredLogs) {
                     TableColumn("時刻") { entry in
                         Text(AccessLogView.timeFormatter.string(from: entry.date))
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.appMonoCaption)
                     }
                     .width(110)
                     TableColumn("IP") { entry in
-                        Text(entry.ip).font(.system(size: 12, design: .monospaced))
+                        Text(entry.ip).font(.appMonoCaption)
                     }
                     .width(110)
                     TableColumn("メソッド") { entry in
                         Text(entry.method)
-                            .font(.appMicro.weight(.semibold))
+                            .font(.appMicroStrong)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Capsule().fill(NeomorphicTheme.control))
@@ -75,7 +75,7 @@ struct AccessLogView: View {
                     }
                     TableColumn("認証") { entry in
                         Text(entry.authorized ? "許可" : "拒否")
-                            .font(.appMicro.weight(.semibold))
+                            .font(.appMicroStrong)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Capsule().fill((entry.authorized ? NeomorphicTheme.online : Color.red).opacity(0.15)))

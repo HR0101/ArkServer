@@ -163,10 +163,10 @@ struct FolderDetailView: View {
     private func sectionTitle(_ title: String, count: Int) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 12, weight: .bold, design: .default))
-                .foregroundStyle(.secondary)
+                .font(.appBody.weight(.medium))
+                .foregroundStyle(NeomorphicTheme.muted)
             Text("\(count)")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(.appMonoMicro.weight(.medium))
                 .foregroundStyle(.tertiary)
         }
         .padding(.leading, 4)
@@ -185,7 +185,7 @@ struct FolderDetailView: View {
                     Image(systemName: isPhoto ? "photo.stack" : "film.stack")
                         .font(.system(size: 11, weight: .semibold))
                     Text("アルバム")
-                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .font(.appCaptionStrong)
                 }
                 .foregroundStyle(.secondary)
             }
@@ -210,7 +210,7 @@ struct FolderDetailView: View {
                     )
                 } label: {
                     Text(part)
-                        .font(.system(size: 12, weight: isLast ? .bold : .medium, design: .default))
+                        .font(isLast ? Font.appCaptionStrong : Font.appCaption)
                         .foregroundStyle(isLast ? Color.primary : Color.secondary)
                 }
                 .buttonStyle(.plain)
@@ -444,7 +444,7 @@ struct FolderEntryTile: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     Text("\(entry.count)")
-                        .font(.appMicro.weight(.semibold))
+                        .font(.appMicroStrong)
                         .monospacedDigit()
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
@@ -456,7 +456,7 @@ struct FolderEntryTile: View {
             if showTitle {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(entry.title)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.appCaptionStrong)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if showDetail {

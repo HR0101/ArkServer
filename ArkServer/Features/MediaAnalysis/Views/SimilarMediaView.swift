@@ -101,7 +101,7 @@ struct SimilarMediaView: View {
                     .foregroundStyle(.secondary)
                 if group.hasAudioDifferences {
                     Label("音声が異なる版を含みます", systemImage: "waveform.badge.exclamationmark")
-                        .font(.appMicro.weight(.semibold))
+                        .font(.appMicroStrong)
                         .foregroundStyle(.orange)
                 }
             }
@@ -135,7 +135,7 @@ struct SimilarMediaView: View {
                 )
                 .overlay(alignment: .bottomLeading) {
                     Text(isKept ? "残す候補" : (isSelected ? "削除" : "対象外"))
-                        .font(.appMicro.weight(.bold))
+                        .font(.appMicroStrong)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
@@ -174,7 +174,7 @@ struct SimilarMediaView: View {
                         Text(String(format: "映像 %.1f Mbps", details.videoBitrate / 1_000_000))
                     }
                 }
-                .font(.system(size: 11).monospacedDigit())
+                .font(.appMicro.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: thumbnailSide)
             }
@@ -204,7 +204,7 @@ struct SimilarMediaView: View {
 
     private func metadataBadge(_ title: String, systemImage: String, color: Color) -> some View {
         Label(title, systemImage: systemImage)
-            .font(.system(size: 11, weight: .medium))
+            .font(.appMicroStrong)
             .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)

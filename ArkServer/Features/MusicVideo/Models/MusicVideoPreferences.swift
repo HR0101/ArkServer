@@ -7,6 +7,12 @@ nonisolated struct MusicVideoPreferences: Codable, Equatable, Sendable {
   var cutStyle: MusicVideoCutStyle = .standard
   var renderPreset: MusicVideoRenderPreset = .landscapeFullHD
   var exportQuality: MusicVideoExportQuality = .high
+  /// カット割りの調整項目(最短・最長のカット長、動きの合わせ方、動画のばらけ具合、切り替えのタイミング)。
+  var cutTuning = MusicVideoCutTuning()
+  /// 見た目と音の調整項目(画面の合わせ方、切り替え効果、フェード)。
+  var lookTuning = MusicVideoLookTuning()
+  /// 解析に使う素材動画の本数。
+  var sourceLimit = MusicVideoSourceLimit.standard
   var selectedAlbumIDs: [UUID] = []
   var selectedVideoIDs: [UUID] = []
   var includeFavorites = false
@@ -36,7 +42,8 @@ nonisolated struct MusicVideoPreferences: Codable, Equatable, Sendable {
 
   // 後から項目を足しても、古い保存データを読めるようにする(無い項目は既定値)。
   private enum CodingKeys: String, CodingKey {
-    case cutStyle, renderPreset, exportQuality, selectedAlbumIDs, selectedVideoIDs, includeFavorites
+    case cutStyle, renderPreset, exportQuality, cutTuning, lookTuning, sourceLimit
+    case selectedAlbumIDs, selectedVideoIDs, includeFavorites
     case musicFolderPath, recentMusicPaths
   }
 
@@ -47,6 +54,11 @@ nonisolated struct MusicVideoPreferences: Codable, Equatable, Sendable {
     cutStyle = try container.decodeIfPresent(MusicVideoCutStyle.self, forKey: .cutStyle) ?? .standard
     renderPreset = try container.decodeIfPresent(MusicVideoRenderPreset.self, forKey: .renderPreset) ?? .landscapeFullHD
     exportQuality = try container.decodeIfPresent(MusicVideoExportQuality.self, forKey: .exportQuality) ?? .high
+    cutTuning = try container.decodeIfPresent(MusicVideoCutTuning.self, forKey: .cutTuning) ?? MusicVideoCutTuning()
+    lookTuning = try container.decodeIfPresent(MusicVideoLookTuning.self, forKey: .lookTuning) ?? MusicVideoLookTuning()
+    sourceLimit = MusicVideoSourceLimit.normalized(
+      try container.decodeIfPresent(Int.self, forKey: .sourceLimit) ?? MusicVideoSourceLimit.standard
+    )
     selectedAlbumIDs = try container.decodeIfPresent([UUID].self, forKey: .selectedAlbumIDs) ?? []
     selectedVideoIDs = try container.decodeIfPresent([UUID].self, forKey: .selectedVideoIDs) ?? []
     includeFavorites = try container.decodeIfPresent(Bool.self, forKey: .includeFavorites) ?? false

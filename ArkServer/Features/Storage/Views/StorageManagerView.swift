@@ -12,15 +12,18 @@ struct StorageManagerView: View {
     }
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 20) {
             SheetHeader(
                 icon: "internaldrive",
                 title: "ストレージ管理",
                 subtitle: "このアプリがMac内に保存しているデータの内訳"
             )
 
-            VStack(alignment: .leading, spacing: 14) {
+            // 設定画面と同じ「行を重ねた面」で、内訳（左に名前、右に容量）を見せる。
+            SettingsGroup {
                 usageBar
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
 
                 breakdownRow(
                     color: Self.usageColors[0],
@@ -38,73 +41,52 @@ struct StorageManagerView: View {
                     size: viewModel.usage.downloadsSize
                 )
 
-                Divider()
-
-                HStack {
-                    Text("総使用容量")
-                        .font(.system(size: 13, weight: .semibold))
-                    Spacer()
+                SettingsRow(title: "総使用容量") {
                     Text(viewModel.formatBytes(viewModel.usage.appTotalSize))
-                        .font(.appTitle.bold())
+                        .font(.appTitle.weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(
                             viewModel.usage.appTotalSize > 10_000_000_000
                                 ? .red
-                                : .primary
+                                : NeomorphicTheme.ink
                         )
                 }
             }
-            .dashboardCard()
 
             if viewModel.isOptimizing {
                 VStack(spacing: 8) {
                     ProgressView()
                     Text(viewModel.optimizationMessage)
                         .font(.appCaption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(NeomorphicTheme.muted)
                 }
                 .frame(maxWidth: .infinity, minHeight: 130)
             } else {
-                VStack(spacing: 10) {
-                    Button(action: viewModel.cleanupMissingFiles) {
-                        Label("リンク切れメディアを整理", systemImage: "link.badge.minus")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-
-                    Text("Mac上の元ファイルが削除されて「見つかりません」になったデータを一括整理します．")
-                        .font(.appCaption)
-                        .foregroundStyle(NeomorphicTheme.muted)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Button(action: viewModel.removeDuplicates) {
-                        Label("重複動画を検出して削除", systemImage: "sparkles")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-
-                    Text("タイトルが違っても内容が完全に一致する動画を自動で整理します．")
-                        .font(.appCaption)
-                        .foregroundStyle(NeomorphicTheme.muted)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HStack(spacing: 10) {
-                        Button(action: viewModel.openDataFolder) {
-                            Label("データフォルダを開く", systemImage: "folder")
-                                .frame(maxWidth: .infinity)
+                SettingsSection(title: "整理") {
+                    SettingsGroup {
+                        SettingsRow(
+                            title: "リンク切れメディアを整理",
+                            detail: "Mac上の元ファイルが削除されて「見つかりません」になったデータを一括整理します．"
+                        ) {
+                            Button("整理", action: viewModel.cleanupMissingFiles)
+                                .buttonStyle(.quiet)
                         }
-                        Button(action: viewModel.openTemporaryFolder) {
-                            Label("一時キャッシュを開く", systemImage: "folder.badge.gearshape")
-                                .frame(maxWidth: .infinity)
+                        SettingsRow(
+                            title: "重複動画を検出して削除",
+                            detail: "タイトルが違っても内容が完全に一致する動画を自動で整理します．"
+                        ) {
+                            Button("検出して削除", action: viewModel.removeDuplicates)
+                                .buttonStyle(.quiet)
+                        }
+                        SettingsRow(title: "フォルダを開く") {
+                            HStack(spacing: 8) {
+                                Button("データ", action: viewModel.openDataFolder)
+                                Button("一時キャッシュ", action: viewModel.openTemporaryFolder)
+                            }
+                            .buttonStyle(.quiet)
                         }
                     }
-                    .controlSize(.large)
                 }
-                .frame(maxWidth: .infinity, minHeight: 130)
             }
 
             Spacer(minLength: 0)
@@ -115,8 +97,8 @@ struct StorageManagerView: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(22)
-        .frame(width: 480, height: 500)
+        .padding(24)
+        .frame(width: 540, height: 660)
         .appSheet()
         .onAppear(perform: viewModel.refreshUsage)
         .alert("クリーンアップ完了", isPresented: $viewModel.isShowingResultAlert) {
@@ -175,17 +157,19 @@ struct StorageManagerView: View {
     }
 
     private func breakdownRow(color: Color, label: String, size: Int64) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(label)
-                .font(.appBody)
-            Spacer()
-            Text(viewModel.formatBytes(size))
-                .font(.system(size: 13, weight: .semibold))
-                .monospacedDigit()
-        }
+        SettingsRow(
+            title: label,
+            leading: {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+            },
+            control: {
+                Text(viewModel.formatBytes(size))
+                    .font(.appBodyStrong)
+                    .monospacedDigit()
+            }
+        )
     }
 
 }

@@ -370,7 +370,7 @@ struct LibraryCategoryView: View {
         .sheet(isPresented: $showSplitSheet) {
             VStack(spacing: 20) {
                 Text("分割再生")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.appTitle)
                 if let video = splitTargetVideo {
                     Text(video.originalFilename)
                         .font(.appBody)

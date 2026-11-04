@@ -8,40 +8,40 @@ struct MusicVideoCutEditorView: View {
   @ObservedObject var dataManager: LibraryViewModel
 
   var body: some View {
-    MVSection(title: "カットの編集") {
-      MVRowGroup {
+    SettingsSection(title: "カットの編集") {
+      SettingsGroup {
         if let cut = viewModel.selectedCut, let plan = viewModel.plan, let index = viewModel.selectedCutIndex {
-          MVRow(
+          SettingsRow(
             title: viewModel.sourceItem(for: cut.videoID)?.originalFilename ?? "（不明な動画）",
             detail: "カット \(index + 1) / \(plan.cuts.count)・\(fineTime(cut.timelineStart)) から \(String(format: "%.2f", cut.duration)) 秒・\(cut.intensity.displayName)\n元動画の \(fineTime(cut.sourceStart)) 付近を使用",
             leading: { thumbnail(for: cut) },
             control: { EmptyView() }
           )
-          MVRow(title: "このカット", detail: "同じ長さのまま，別の映像に差し替えます．") {
+          SettingsRow(title: "このカット", detail: "同じ長さのまま，別の映像に差し替えます．") {
             HStack(spacing: 8) {
               Button("差し替える") { viewModel.replaceSelectedCut() }
-                .buttonStyle(.mvSmall)
+                .buttonStyle(.quiet)
                 .accessibilityIdentifier("musicvideo.replaceCut")
               moreMenu
             }
             .disabled(!viewModel.canEdit)
           }
         } else {
-          MVRow(
+          SettingsRow(
             title: "カットを選んでください",
             detail: "上のタイムラインをクリックすると，その位置のカットを選べます．選んだカットだけを差し替えられます．"
           ) {
             EmptyView()
           }
         }
-        MVRow(title: "移動と履歴") {
+        SettingsRow(title: "移動と履歴") {
           HStack(spacing: 8) {
             Button {
               viewModel.selectAdjacentCut(by: -1)
             } label: {
               Image(systemName: "chevron.left")
             }
-            .buttonStyle(.mvSmall)
+            .buttonStyle(.quiet)
             .help("前のカット")
             .accessibilityLabel("前のカット")
             Button {
@@ -49,7 +49,7 @@ struct MusicVideoCutEditorView: View {
             } label: {
               Image(systemName: "chevron.right")
             }
-            .buttonStyle(.mvSmall)
+            .buttonStyle(.quiet)
             .help("次のカット")
             .accessibilityLabel("次のカット")
 
@@ -58,22 +58,22 @@ struct MusicVideoCutEditorView: View {
             }
 
             Button("元に戻す") { viewModel.undo() }
-              .buttonStyle(.mvSmall)
+              .buttonStyle(.quiet)
               .disabled(!viewModel.canUndo)
               .accessibilityIdentifier("musicvideo.undo")
             Button("やり直す") { viewModel.redo() }
-              .buttonStyle(.mvSmall)
+              .buttonStyle(.quiet)
               .disabled(!viewModel.canRedo)
           }
           .disabled(viewModel.plan == nil)
         }
         if !viewModel.excludedVideoIDs.isEmpty {
-          MVRow(
+          SettingsRow(
             title: "除外した動画 \(viewModel.excludedVideoIDs.count)本",
             detail: "次に映像を作るときも使いません．"
           ) {
             Button("除外を解除") { viewModel.clearExclusions() }
-              .buttonStyle(.mvSmall)
+              .buttonStyle(.quiet)
           }
         }
       }
@@ -94,7 +94,7 @@ struct MusicVideoCutEditorView: View {
       Text("その他")
     }
     .menuStyle(.button)
-    .buttonStyle(.mvSmall)
+    .buttonStyle(.quiet)
     .menuIndicator(.visible)
     .fixedSize()
   }

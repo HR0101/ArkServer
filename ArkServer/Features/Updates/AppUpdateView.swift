@@ -5,7 +5,7 @@ struct AppUpdateView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("ソフトウェアアップデート").font(.title2.bold())
+            Text("ソフトウェアアップデート").font(.appTitle)
             Text("現在のバージョン: \(updater.currentVersion)（ビルド \(updater.currentBuild)）")
                 .foregroundStyle(.secondary)
             switch updater.state {
@@ -65,19 +65,36 @@ struct AppUpdateView: View {
 struct UpdateSettingsSection: View {
     @ObservedObject private var updater = AppUpdater.shared
     var body: some View {
-        Section("アップデート") {
-            LabeledContent("現在のバージョン", value: "\(updater.currentVersion)（ビルド \(updater.currentBuild)）")
-            Toggle("起動時に自動でアップデートを確認", isOn: $updater.automaticallyChecks)
-            LabeledContent("最終確認") {
-                if let date = updater.lastCheck {
-                    Text(date, format: .dateTime.year().month().day().hour().minute())
-                } else {
-                    Text("未確認")
+        SettingsSection(title: "バージョン") {
+            SettingsGroup {
+                SettingsRow(title: "現在のバージョン") {
+                    Text("\(updater.currentVersion)（ビルド \(updater.currentBuild)）")
+                        .font(.appBody.monospacedDigit())
+                        .foregroundStyle(NeomorphicTheme.muted)
                 }
-            }
-            AppUpdateAvailabilityButton()
-            Button(updater.isBusy ? "アップデートの状況を表示" : "今すぐアップデートを確認") {
-                updater.check(manual: true)
+                SettingsRow(title: "起動時に自動でアップデートを確認") {
+                    SettingsSwitch(title: "起動時に自動でアップデートを確認", isOn: $updater.automaticallyChecks)
+                }
+                SettingsRow(title: "最終確認") {
+                    Group {
+                        if let date = updater.lastCheck {
+                            Text(date, format: .dateTime.year().month().day().hour().minute())
+                        } else {
+                            Text("未確認")
+                        }
+                    }
+                    .font(.appBody.monospacedDigit())
+                    .foregroundStyle(NeomorphicTheme.muted)
+                }
+                SettingsRow(title: updater.isBusy ? "アップデートの状況" : "アップデートを確認") {
+                    HStack(spacing: 8) {
+                        AppUpdateAvailabilityButton()
+                        Button(updater.isBusy ? "状況を表示" : "今すぐ確認") {
+                            updater.check(manual: true)
+                        }
+                        .buttonStyle(.quiet)
+                    }
+                }
             }
         }
     }

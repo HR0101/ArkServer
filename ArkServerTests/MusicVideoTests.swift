@@ -7,10 +7,10 @@ import Testing
 
 // MARK: - 合成音声
 
-private let testSampleRate = 22_050.0
+let testSampleRate = 22_050.0
 
 /// 指定した時刻にクリック音(減衰する1.5kHzの短い音)を置いた音声を作る。
-private func clickTrack(duration: Double, clicks: [(time: Double, amplitude: Float)]) -> [Float] {
+func clickTrack(duration: Double, clicks: [(time: Double, amplitude: Float)]) -> [Float] {
   var samples = [Float](repeating: 0, count: Int(duration * testSampleRate))
   let burstLength = Int(0.03 * testSampleRate)
   for click in clicks {
@@ -24,7 +24,7 @@ private func clickTrack(duration: Double, clicks: [(time: Double, amplitude: Flo
 }
 
 /// 一定間隔(`interval` 秒)のクリックの時刻。
-private func evenClicks(from first: Double, interval: Double, until end: Double) -> [Double] {
+func evenClicks(from first: Double, interval: Double, until end: Double) -> [Double] {
   Array(stride(from: first, to: end, by: interval))
 }
 
@@ -35,11 +35,13 @@ private func nearestDistance(to time: Double, in times: [Double]) -> Double {
 // MARK: - 合成動画
 
 /// 単色のフレームだけからなる小さな動画を書き出す。`brightness` でフレームごとの明るさを決める。
-private func makeTestVideo(
+func makeTestVideo(
   at url: URL,
   duration: Double,
   size: (width: Int, height: Int) = (160, 90),
   framesPerSecond: Int32 = 30,
+  /// 向きの情報(スマートフォンで縦に撮った動画のように、画素は横長のまま回転だけを持たせる)。
+  transform: CGAffineTransform = .identity,
   brightness: (Int) -> UInt8
 ) async throws {
   let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
@@ -51,6 +53,7 @@ private func makeTestVideo(
       AVVideoHeightKey: size.height
     ]
   )
+  input.transform = transform
   let adaptor = AVAssetWriterInputPixelBufferAdaptor(
     assetWriterInput: input,
     sourcePixelBufferAttributes: [
@@ -83,7 +86,7 @@ private func makeTestVideo(
   #expect(writer.status == .completed)
 }
 
-private func temporaryDirectory(_ name: String) throws -> URL {
+func temporaryDirectory(_ name: String) throws -> URL {
   let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID().uuidString)")
   try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
   return url
@@ -558,7 +561,7 @@ private final class LockedCounter: @unchecked Sendable {
 // MARK: - 合成と書き出し
 
 /// 画像を `columns`×`rows` に区切り、各区画の平均の明るさ(0〜255)を返す。
-private func lumaGrid(_ image: CGImage, columns: Int = 4, rows: Int = 4) -> [Double] {
+func lumaGrid(_ image: CGImage, columns: Int = 4, rows: Int = 4) -> [Double] {
   let width = 64, height = 64
   var pixels = [UInt8](repeating: 0, count: width * height)
   pixels.withUnsafeMutableBytes { buffer in
@@ -585,7 +588,7 @@ private func lumaGrid(_ image: CGImage, columns: Int = 4, rows: Int = 4) -> [Dou
   return result
 }
 
-private func writeSineWAV(to url: URL, duration: Double) throws {
+func writeSineWAV(to url: URL, duration: Double) throws {
   let sampleRate = 44_100.0
   let format = try #require(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1))
   let frames = AVAudioFrameCount(duration * sampleRate)
@@ -600,7 +603,7 @@ private func writeSineWAV(to url: URL, duration: Double) throws {
 }
 
 /// 段階の名前つきで実行し、失敗したときはどの段階かを記録してから投げ直す。
-private func step<T>(_ label: String, _ body: () async throws -> T) async throws -> T {
+func step<T>(_ label: String, _ body: () async throws -> T) async throws -> T {
   do {
     return try await body()
   } catch {
@@ -656,7 +659,7 @@ struct MusicVideoComposerTests {
     #expect(composed.composition.tracks(withMediaType: .audio).count == 1)
     #expect(composed.videoComposition.renderSize == render.size)
 
-    let outputURL = directory.appendingPathComponent("out/hmv.mp4")
+    let outputURL = directory.appendingPathComponent("out/result.mp4")
     let progress = LockedCounter()
     try await step("export") {
       try await composer.export(composed, to: outputURL) { fraction in
@@ -715,7 +718,7 @@ struct MusicVideoComposerTests {
 
 // MARK: - 曲の解析から書き出しまで通した確認
 
-private func writeMonoWAV(samples: [Float], sampleRate: Double, to url: URL) throws {
+func writeMonoWAV(samples: [Float], sampleRate: Double, to url: URL) throws {
   let format = try #require(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1))
   let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)))
   buffer.frameLength = AVAudioFrameCount(samples.count)
@@ -788,7 +791,7 @@ struct MusicVideoPipelineTests {
       audioURL: musicURL,
       render: render
     )
-    let outputURL = directory.appendingPathComponent("hmv.mp4")
+    let outputURL = directory.appendingPathComponent("result.mp4")
     try await composer.export(composed, to: outputURL)
 
     let output = AVURLAsset(url: outputURL)
@@ -1264,7 +1267,7 @@ struct MusicVideoExportQualityTests {
   func outputFileNamesAreSafeAndStamped() {
     let date = Date(timeIntervalSince1970: 1_700_000_000)
     let name = MusicVideoViewModel.outputFileName(musicTitle: "a/b:c*d?e", date: date)
-    #expect(name.hasPrefix("HMV_a_b_c_d_e_"))
+    #expect(name.hasPrefix("MusicVideo_a_b_c_d_e_"))
     #expect(name.hasSuffix(".mp4"))
     #expect(!name.dropFirst(4).contains("/"))
   }

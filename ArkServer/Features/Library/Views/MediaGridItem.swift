@@ -118,7 +118,7 @@ struct MediaGridItem: View {
                 .overlay(alignment: .bottomTrailing) {
                     if video.mediaType == .video, video.duration > 0 {
                         Text(formatDuration(video.duration))
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.appMicroStrong)
                             .monospacedDigit()
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
@@ -152,7 +152,7 @@ struct MediaGridItem: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if showTitle {
                         Text(video.originalFilename)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.appCaptionStrong)
                             .foregroundStyle(NeomorphicTheme.ink)
                             .lineLimit(1)
                             .truncationMode(.middle)

@@ -54,6 +54,8 @@ nonisolated enum MusicVideoComposerError: LocalizedError {
 nonisolated struct MusicVideoComposition: @unchecked Sendable {
   let composition: AVMutableComposition
   let videoComposition: AVMutableVideoComposition
+  /// 音のフェード。フェードしないときは nil。
+  var audioMix: AVAudioMix?
   /// 完成映像の長さ（秒）。
   let duration: Double
   /// 画面サイズとフレームレート。書き出しのビットレートの計算にも使う。
@@ -62,29 +64,141 @@ nonisolated struct MusicVideoComposition: @unchecked Sendable {
   func makePlayerItem() -> AVPlayerItem {
     let item = AVPlayerItem(asset: composition)
     item.videoComposition = videoComposition
+    item.audioMix = audioMix
     return item
   }
 }
 
 /// `CutPlan` から1本の映像を組み立て、mp3 などの音楽を付けて書き出す。
 ///
-/// 1拍ごとのカットだと数百カットになるので、映像トラックは1本を使い回し、
-/// 画面いっぱいに拡大する変換だけをカットの切り替え時刻ごとに差し替える。
+/// 1拍ごとのカットだと数百カットになるので、既定では映像トラックを1本使い回し、
+/// 画面に収める変換だけをカットの切り替え時刻ごとに差し替える。クロスフェードのときだけ、前後を重ねるために2本を交互に使う。
 nonisolated struct MusicVideoComposer: Sendable {
   /// 時刻を丸める分解能。30/24/25fps のどれの1フレームも割り切れる値。
   private static let timescale: CMTimeScale = 600
 
   // MARK: - 合成
 
+  /// `plan` のカット割りから、プレビューと書き出しに使う合成を組み立てる。
+  /// - Parameters:
+  ///   - look: 画面の合わせ方・切り替え効果・フェード。既定(画面いっぱい・そのまま切り替え・フェードなし)では、
+  ///     映像トラックを1本だけ使う。
+  ///   - audioStart: 音楽ファイルの何秒目を、映像の 0 秒に合わせるか(曲の一部だけを使うとき)。
   func makeComposition(
     plan: CutPlan,
     sourceURLs: [UUID: URL],
     audioURL: URL,
-    render: MusicVideoRenderSettings
+    render: MusicVideoRenderSettings,
+    look: MusicVideoLookTuning = MusicVideoLookTuning(),
+    audioStart: Double = 0
   ) async throws -> MusicVideoComposition {
     guard !plan.cuts.isEmpty else { throw MusicVideoComposerError.emptyPlan }
 
     let composition = AVMutableComposition()
+    let fade = min(max(0, look.fadeSeconds), plan.duration / 2)
+
+    let placement: Placement
+    switch look.transition {
+    case .crossfade:
+      placement = try await placeCrossfade(plan: plan, sourceURLs: sourceURLs, render: render, look: look, fade: fade, into: composition)
+    case .cut, .flash:
+      placement = try await placeSingleTrack(plan: plan, sourceURLs: sourceURLs, render: render, look: look, fade: fade, into: composition)
+    }
+
+    let audioMix = try await addAudio(
+      from: audioURL,
+      to: composition,
+      duration: Self.time(plan.duration),
+      startOffset: audioStart,
+      fade: fade
+    )
+
+    // 音声のほうが長いときも、映像の指示が全体を覆うように、最後の区間を合成の終わりまで延ばす。
+    var segments = placement.segments
+    if let last = segments.last, composition.duration > last.range.end {
+      segments[segments.count - 1].range = CMTimeRange(start: last.range.start, end: composition.duration)
+    }
+
+    let videoComposition = AVMutableVideoComposition()
+    videoComposition.instructions = Self.makeInstructions(
+      segments: segments,
+      totalDuration: composition.duration,
+      fade: fade
+    )
+    videoComposition.renderSize = render.size
+    videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(render.framesPerSecond))
+    // 色の扱いを BT.709 に固定する(書き出し側の指定と揃えて、色味が変わらないようにする)。
+    videoComposition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
+    videoComposition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
+    videoComposition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+
+    return MusicVideoComposition(
+      composition: composition,
+      videoComposition: videoComposition,
+      audioMix: audioMix,
+      duration: composition.duration.seconds,
+      render: render
+    )
+  }
+
+  // MARK: 合成の部品
+
+  private struct SourceTrack {
+    /// トラックは元のアセットが解放されると使えなくなる(挿入時に -12780 で失敗する)ので、アセットも持ち続ける。
+    let asset: AVURLAsset
+    let track: AVAssetTrack
+    let timeRange: CMTimeRange
+    let naturalSize: CGSize
+    let preferredTransform: CGAffineTransform
+  }
+
+  /// 映像の1つの層。どのトラックを、どの変換で映すか。
+  private struct LayerSpec {
+    var track: AVMutableCompositionTrack
+    /// (時刻, 変換)。カットが替わる時刻で変換を差し替える。
+    var transforms: [(time: CMTime, transform: CGAffineTransform)]
+    /// この区間のあいだに 1→0 へ消える(クロスフェードで、前の映像を消す側)。
+    var fadesOut = false
+    /// この区間のあいだに 0→1 へ現れる(フラッシュのあと、映像が戻る側)。
+    var fadesIn = false
+  }
+
+  /// 同じ見え方が続く時間の区間。`layers` の先頭が一番上に重なる。
+  private struct Segment {
+    var range: CMTimeRange
+    var layers: [LayerSpec]
+    var background: CGColor
+  }
+
+  private struct Placement {
+    var segments: [Segment]
+  }
+
+  // 背景色は RGB で指定する(グレースケールの色は AVFoundation に無視されて、常に黒になる)。
+  private static let black = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
+  private static let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+
+  private func loadedSource(
+    for videoID: UUID,
+    urls: [UUID: URL],
+    cache: inout [UUID: SourceTrack]
+  ) async throws -> SourceTrack {
+    if let known = cache[videoID] { return known }
+    guard let url = urls[videoID] else { throw MusicVideoComposerError.missingSource(videoID) }
+    let loaded = try await loadSource(url: url)
+    cache[videoID] = loaded
+    return loaded
+  }
+
+  /// 映像トラックを1本だけ使う。そのまま切り替える(既定)か、切り替えのたびに白く光らせる。
+  private func placeSingleTrack(
+    plan: CutPlan,
+    sourceURLs: [UUID: URL],
+    render: MusicVideoRenderSettings,
+    look: MusicVideoLookTuning,
+    fade: Double,
+    into composition: AVMutableComposition
+  ) async throws -> Placement {
     guard let videoTrack = composition.addMutableTrack(
       withMediaType: .video,
       preferredTrackID: kCMPersistentTrackID_Invalid
@@ -93,20 +207,11 @@ nonisolated struct MusicVideoComposer: Sendable {
     }
 
     var sources: [UUID: SourceTrack] = [:]
-    let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+    var placed: [(cutIndex: Int, start: CMTime, transform: CGAffineTransform)] = []
 
-    for cut in plan.cuts {
+    for (index, cut) in plan.cuts.enumerated() {
       try Task.checkCancellation()
-      let source: SourceTrack
-      if let known = sources[cut.videoID] {
-        source = known
-      } else {
-        guard let url = sourceURLs[cut.videoID] else {
-          throw MusicVideoComposerError.missingSource(cut.videoID)
-        }
-        source = try await loadSource(url: url)
-        sources[cut.videoID] = source
-      }
+      let source = try await loadedSource(for: cut.videoID, urls: sourceURLs, cache: &sources)
 
       // 開始・終了をそれぞれ丸めて差を長さにすることで、カット間に隙間やずれを作らない。
       let start = Self.time(cut.timelineStart)
@@ -125,44 +230,202 @@ nonisolated struct MusicVideoComposer: Sendable {
         of: source.track,
         at: start
       )
-      layerInstruction.setTransform(
-        Self.fillTransform(for: source, renderSize: render.size),
-        at: start
+      placed.append((index, start, Self.transform(for: source, renderSize: render.size, fit: look.fitMode)))
+    }
+
+    let videoEnd = videoTrack.timeRange.end
+    guard !placed.isEmpty else { throw MusicVideoComposerError.emptyPlan }
+
+    // そのまま切り替えるなら、全体で1つの区間にして、変換だけを時刻ごとに差し替える。
+    if look.transition == .cut {
+      let layer = LayerSpec(track: videoTrack, transforms: placed.map { ($0.start, $0.transform) })
+      return Placement(segments: [
+        Segment(range: CMTimeRange(start: .zero, end: videoEnd), layers: [layer], background: Self.black)
+      ])
+    }
+
+    // フラッシュ: 各カットの頭で、白い背景から映像が 0→1 に戻る短い区間を挟む。
+    var segments: [Segment] = []
+    for (position, item) in placed.enumerated() {
+      let segmentStart = position == 0 ? CMTime.zero : item.start
+      let segmentEnd = position + 1 < placed.count ? placed[position + 1].start : videoEnd
+      guard segmentEnd > segmentStart else { continue }
+      let boundary = plan.cuts[item.cutIndex].timelineStart
+      let length = (segmentEnd - segmentStart).seconds
+      let flashLength = min(look.transition.duration, length / 2)
+      let flashes = position > 0 && flashLength >= 0.04 && !Self.isInFadeZone(
+        boundary, halfWidth: flashLength, fade: fade, total: plan.duration
+      )
+
+      if flashes {
+        let flashEnd = CMTimeAdd(segmentStart, Self.time(flashLength))
+        segments.append(Segment(
+          range: CMTimeRange(start: segmentStart, end: flashEnd),
+          layers: [LayerSpec(track: videoTrack, transforms: [(segmentStart, item.transform)], fadesIn: true)],
+          background: Self.white
+        ))
+        segments.append(Segment(
+          range: CMTimeRange(start: flashEnd, end: segmentEnd),
+          layers: [LayerSpec(track: videoTrack, transforms: [(flashEnd, item.transform)])],
+          background: Self.black
+        ))
+      } else {
+        segments.append(Segment(
+          range: CMTimeRange(start: segmentStart, end: segmentEnd),
+          layers: [LayerSpec(track: videoTrack, transforms: [(segmentStart, item.transform)])],
+          background: Self.black
+        ))
+      }
+    }
+    return Placement(segments: segments)
+  }
+
+  /// 映像トラックを2本、交互に使い、切り替えの前後を重ねて消し合う(クロスフェード)。
+  /// 切り替えは拍の位置を中心にし、前のカットは拍のあとへ、次のカットは拍の前へ、素材を少しはみ出して使う。
+  private func placeCrossfade(
+    plan: CutPlan,
+    sourceURLs: [UUID: URL],
+    render: MusicVideoRenderSettings,
+    look: MusicVideoLookTuning,
+    fade: Double,
+    into composition: AVMutableComposition
+  ) async throws -> Placement {
+    guard
+      let trackA = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+      let trackB = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+    else {
+      throw MusicVideoComposerError.cannotCreateTrack
+    }
+    let tracks = [trackA, trackB]
+    let cuts = plan.cuts
+    let count = cuts.count
+
+    // 各カットの開始位置。最後のカットの終わりも含める。時刻は一度だけ丸め、前後の区間で同じ値を使う。
+    var bounds = cuts.map { Self.time($0.timelineStart) }
+    bounds.append(Self.time(cuts[count - 1].timelineEnd))
+
+    // overlap[i]: i 番目のカットの頭の切り替えの長さ(秒)。0 なら重ねない。
+    var overlap = [Double](repeating: 0, count: count + 1)
+    if count > 1 {
+      for index in 1..<count {
+        let shorter = min(cuts[index - 1].duration, cuts[index].duration)
+        let length = min(look.transition.duration, shorter / 2)
+        if length >= 0.04, !Self.isInFadeZone(cuts[index].timelineStart, halfWidth: length / 2, fade: fade, total: plan.duration) {
+          overlap[index] = length
+        }
+      }
+    }
+    func half(_ index: Int) -> CMTime { Self.time(overlap[index] / 2) }
+
+    var sources: [UUID: SourceTrack] = [:]
+    var transforms: [CGAffineTransform] = []
+    for (index, cut) in cuts.enumerated() {
+      try Task.checkCancellation()
+      let source = try await loadedSource(for: cut.videoID, urls: sourceURLs, cache: &sources)
+      transforms.append(Self.transform(for: source, renderSize: render.size, fit: look.fitMode))
+
+      // このカットが占める時間: 前の切り替えの半分だけ早く始まり、次の切り替えの半分だけ遅く終わる。
+      let timelineStart = CMTimeSubtract(bounds[index], half(index))
+      let timelineEnd = CMTimeAdd(bounds[index + 1], half(index + 1))
+      let length = CMTimeSubtract(timelineEnd, timelineStart)
+      guard length > .zero else { continue }
+
+      // 素材も同じだけ前にずらして使う。素材の範囲を越えるときは、収まるまで動かす。
+      var sourceStart = CMTimeSubtract(Self.time(cut.sourceStart), half(index))
+      if sourceStart < source.timeRange.start { sourceStart = source.timeRange.start }
+      if CMTimeAdd(sourceStart, length) > source.timeRange.end {
+        sourceStart = max(source.timeRange.start, CMTimeSubtract(source.timeRange.end, length))
+      }
+      try tracks[index % 2].insertTimeRange(
+        CMTimeRange(start: sourceStart, duration: length),
+        of: source.track,
+        at: timelineStart
       )
     }
 
-    let totalDuration = Self.time(plan.duration)
-    try await addAudio(from: audioURL, to: composition, duration: totalDuration)
-
-    let instruction = AVMutableVideoCompositionInstruction()
-    instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
-    instruction.backgroundColor = CGColor(gray: 0, alpha: 1)
-    instruction.layerInstructions = [layerInstruction]
-
-    let videoComposition = AVMutableVideoComposition()
-    videoComposition.instructions = [instruction]
-    videoComposition.renderSize = render.size
-    videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(render.framesPerSecond))
-    // 色の扱いを BT.709 に固定する(書き出し側の指定と揃えて、色味が変わらないようにする)。
-    videoComposition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
-    videoComposition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
-    videoComposition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
-
-    return MusicVideoComposition(
-      composition: composition,
-      videoComposition: videoComposition,
-      duration: composition.duration.seconds,
-      render: render
-    )
+    var segments: [Segment] = []
+    for index in 0..<count {
+      if index > 0, overlap[index] > 0 {
+        // 切り替え: 前のカットを上に重ね、1→0 に消していく。
+        let start = CMTimeSubtract(bounds[index], half(index))
+        let end = CMTimeAdd(bounds[index], half(index))
+        segments.append(Segment(
+          range: CMTimeRange(start: start, end: end),
+          layers: [
+            LayerSpec(track: tracks[(index - 1) % 2], transforms: [(start, transforms[index - 1])], fadesOut: true),
+            LayerSpec(track: tracks[index % 2], transforms: [(start, transforms[index])])
+          ],
+          background: Self.black
+        ))
+      }
+      let soloStart = CMTimeAdd(bounds[index], half(index))
+      let soloEnd = CMTimeSubtract(bounds[index + 1], half(index + 1))
+      guard soloEnd > soloStart else { continue }
+      segments.append(Segment(
+        range: CMTimeRange(start: soloStart, end: soloEnd),
+        layers: [LayerSpec(track: tracks[index % 2], transforms: [(soloStart, transforms[index])])],
+        background: Self.black
+      ))
+    }
+    guard !segments.isEmpty else { throw MusicVideoComposerError.emptyPlan }
+    return Placement(segments: segments)
   }
 
-  private struct SourceTrack {
-    /// トラックは元のアセットが解放されると使えなくなる(挿入時に -12780 で失敗する)ので、アセットも持ち続ける。
-    let asset: AVURLAsset
-    let track: AVAssetTrack
-    let timeRange: CMTimeRange
-    let naturalSize: CGSize
-    let preferredTransform: CGAffineTransform
+  /// 切り替えが、最初・最後のフェードと重なるか。重なるときは、切り替えの効果は付けない(透明度の指定が競合するため)。
+  private static func isInFadeZone(_ boundary: Double, halfWidth: Double, fade: Double, total: Double) -> Bool {
+    guard fade > 0 else { return false }
+    return boundary - halfWidth < fade || boundary + halfWidth > total - fade
+  }
+
+  /// 区間ごとの指示を作る。最初と最後の `fade` 秒は、全体の透明度を 0↔1 に変える。
+  private static func makeInstructions(
+    segments: [Segment],
+    totalDuration: CMTime,
+    fade: Double
+  ) -> [AVMutableVideoCompositionInstruction] {
+    let total = totalDuration.seconds
+    let fadeTime = time(fade)
+    let fadeInZone = CMTimeRange(start: .zero, duration: fadeTime)
+    let fadeOutZone = CMTimeRange(start: CMTimeSubtract(totalDuration, fadeTime), duration: fadeTime)
+
+    return segments.map { segment in
+      let instruction = AVMutableVideoCompositionInstruction()
+      instruction.timeRange = segment.range
+      instruction.backgroundColor = segment.background
+
+      instruction.layerInstructions = segment.layers.map { layer in
+        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: layer.track)
+        for entry in layer.transforms {
+          layerInstruction.setTransform(entry.transform, at: entry.time)
+        }
+        if layer.fadesOut {
+          layerInstruction.setOpacityRamp(fromStartOpacity: 1, toEndOpacity: 0, timeRange: segment.range)
+        }
+        if layer.fadesIn {
+          layerInstruction.setOpacityRamp(fromStartOpacity: 0, toEndOpacity: 1, timeRange: segment.range)
+        }
+        if fade > 0 {
+          let intoVideo = segment.range.intersection(fadeInZone)
+          if intoVideo.duration > .zero {
+            layerInstruction.setOpacityRamp(
+              fromStartOpacity: Float(intoVideo.start.seconds / fade),
+              toEndOpacity: Float(intoVideo.end.seconds / fade),
+              timeRange: intoVideo
+            )
+          }
+          let outOfVideo = segment.range.intersection(fadeOutZone)
+          if outOfVideo.duration > .zero {
+            layerInstruction.setOpacityRamp(
+              fromStartOpacity: Float((total - outOfVideo.start.seconds) / fade),
+              toEndOpacity: Float((total - outOfVideo.end.seconds) / fade),
+              timeRange: outOfVideo
+            )
+          }
+        }
+        return layerInstruction
+      }
+      return instruction
+    }
   }
 
   private func loadSource(url: URL) async throws -> SourceTrack {
@@ -180,11 +443,14 @@ nonisolated struct MusicVideoComposer: Sendable {
     )
   }
 
+  /// 音楽を映像の 0 秒に合わせて入れる。`fade` が 0 より大きければ、最初と最後で音量を 0↔1 に変える。
   private func addAudio(
     from url: URL,
     to composition: AVMutableComposition,
-    duration: CMTime
-  ) async throws {
+    duration: CMTime,
+    startOffset: Double,
+    fade: Double
+  ) async throws -> AVAudioMix? {
     let asset = AVURLAsset(url: url)
     guard let sourceTrack = try await asset.loadTracks(withMediaType: .audio).first else {
       throw MusicVideoComposerError.noAudioTrack
@@ -196,21 +462,40 @@ nonisolated struct MusicVideoComposer: Sendable {
       throw MusicVideoComposerError.cannotCreateTrack
     }
     let available = try await sourceTrack.load(.timeRange)
-    let length = min(duration, available.duration)
+    let offset = Self.time(max(0, startOffset))
+    let start = min(CMTimeAdd(available.start, offset), available.end)
+    let length = min(duration, CMTimeSubtract(available.end, start))
+    guard length > .zero else { throw MusicVideoComposerError.noAudioTrack }
     try audioTrack.insertTimeRange(
-      CMTimeRange(start: available.start, duration: length),
+      CMTimeRange(start: start, duration: length),
       of: sourceTrack,
       at: .zero
     )
+
+    guard fade > 0 else { return nil }
+    let fadeTime = Self.time(fade)
+    let parameters = AVMutableAudioMixInputParameters(track: audioTrack)
+    parameters.setVolumeRamp(fromStartVolume: 0, toEndVolume: 1, timeRange: CMTimeRange(start: .zero, duration: fadeTime))
+    parameters.setVolumeRamp(
+      fromStartVolume: 1,
+      toEndVolume: 0,
+      timeRange: CMTimeRange(start: CMTimeSubtract(length, fadeTime), duration: fadeTime)
+    )
+    let mix = AVMutableAudioMix()
+    mix.inputParameters = [parameters]
+    return mix
   }
 
-  /// 素材を画面いっぱいに（はみ出す部分は切り落として）敷き詰める変換。向き（回転）も反映する。
-  private static func fillTransform(for source: SourceTrack, renderSize: CGSize) -> CGAffineTransform {
+  /// 素材を画面に収める変換。向き（回転）も反映する。
+  /// `.fill` は画面いっぱいに（はみ出す部分は切り落として）敷き詰め、`.fit` は全体が収まる大きさにして中央に置く。
+  private static func transform(for source: SourceTrack, renderSize: CGSize, fit: MusicVideoFitMode) -> CGAffineTransform {
     let rotated = source.naturalSize.applying(source.preferredTransform)
     let displaySize = CGSize(width: abs(rotated.width), height: abs(rotated.height))
     guard displaySize.width > 0, displaySize.height > 0 else { return .identity }
 
-    let scale = max(renderSize.width / displaySize.width, renderSize.height / displaySize.height)
+    let widthScale = renderSize.width / displaySize.width
+    let heightScale = renderSize.height / displaySize.height
+    let scale = fit == .fill ? max(widthScale, heightScale) : min(widthScale, heightScale)
     let scaledSize = CGSize(width: displaySize.width * scale, height: displaySize.height * scale)
     let translation = CGAffineTransform(
       translationX: (renderSize.width - scaledSize.width) / 2,
@@ -309,6 +594,7 @@ nonisolated struct MusicVideoComposer: Sendable {
             AVNumberOfChannelsKey: 2
           ]
         )
+        output.audioMix = composed.audioMix
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else { throw MusicVideoComposerError.cannotCreateExporter }
         reader.add(output)

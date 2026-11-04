@@ -8,7 +8,6 @@ import Foundation
 @MainActor
 final class AppViewModel: ObservableObject {
   @Published var selection: NavigationSelection? = .home
-  @Published var isShowingPreferences = false
   @Published var isShowingStorageManager = false
   @Published var isShowingAccessLog = false
   @Published var sceneExtractionNavigationError: String?
@@ -35,6 +34,7 @@ final class AppViewModel: ObservableObject {
 
   private var cancellables = Set<AnyCancellable>()
   private var sceneExtractionReturnSelection: NavigationSelection = .home
+  private var settingsRouting = SettingsRouting()
 
   convenience init() {
     self.init(
@@ -74,6 +74,23 @@ final class AppViewModel: ObservableObject {
       .assign(to: &$currentServerURL)
 
     bridgeFavorites()
+  }
+
+  // MARK: - 詳細設定ページ
+
+  /// 詳細設定のページを開きます．元の画面は覚えておき，`closeSettings()` で戻します．
+  func openSettings(_ pane: SettingsPane = .connection) {
+    selection = settingsRouting.opening(from: selection, pane: pane)
+  }
+
+  /// 詳細設定を閉じて，開く前の画面へ戻します．
+  func closeSettings() {
+    selection = settingsRouting.closing()
+  }
+
+  /// レールの歯車用．設定中なら戻り，そうでなければ開きます．
+  func toggleSettings() {
+    if SettingsRouting.isSettings(selection) { closeSettings() } else { openSettings() }
   }
 
   /// ライブラリ内の動画を解析画面へ渡します．

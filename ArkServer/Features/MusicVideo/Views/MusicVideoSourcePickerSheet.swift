@@ -28,15 +28,6 @@ struct MusicVideoSourcePickerSheet: View {
     var id: String { rawValue }
   }
 
-  private struct AlbumRow: Identifiable {
-    let id: UUID
-    let title: String
-    let parent: String
-    let count: Int
-    let totalDuration: Double
-    let latestImport: Date
-  }
-
   @State private var tab: Tab = .albums
   @State private var searchText = ""
   @AppStorage("musicVideo.picker.albumOrder") private var albumOrder: AlbumOrder = .name
@@ -45,7 +36,7 @@ struct MusicVideoSourcePickerSheet: View {
   @AppStorage("musicVideo.picker.minimumLength") private var minimumLength = 5.0
   @State private var onlySelected = false
   @State private var favoritesOnly = false
-  @State private var albumRows: [AlbumRow] = []
+  @State private var albumRows: [MusicVideoAlbumEntry] = []
   /// 動画タブの一覧(動画だけ・ゴミ箱外)。ライブラリが変わったときだけ作り直す。
   @State private var allVideos: [VideoItem] = []
 
@@ -142,15 +133,11 @@ struct MusicVideoSourcePickerSheet: View {
 
   // MARK: - アルバム
 
-  private var visibleAlbums: [AlbumRow] {
+  private var visibleAlbums: [MusicVideoAlbumEntry] {
     var rows = albumRows
     if hidesEmptyAlbums { rows = rows.filter { $0.count > 0 } }
     if onlySelected { rows = rows.filter { viewModel.selectedAlbumIDs.contains($0.id) } }
-    if !query.isEmpty {
-      rows = rows.filter {
-        $0.title.localizedCaseInsensitiveContains(query) || $0.parent.localizedCaseInsensitiveContains(query)
-      }
-    }
+    if !query.isEmpty { rows = rows.filter { $0.matches(query: query) } }
     switch albumOrder {
     case .name:
       rows.sort { ($0.parent + "/" + $0.title).localizedStandardCompare($1.parent + "/" + $1.title) == .orderedAscending }
@@ -292,7 +279,7 @@ struct MusicVideoSourcePickerSheet: View {
     HStack(spacing: 12) {
       VStack(alignment: .leading, spacing: 2) {
         Text("使える動画 \(viewModel.candidateCount.formatted())本")
-          .font(.appBody.weight(.semibold))
+          .font(.appBodyStrong)
         Text(summaryDetail)
           .font(.appCaption)
           .foregroundStyle(NeomorphicTheme.muted)
@@ -312,7 +299,7 @@ struct MusicVideoSourcePickerSheet: View {
     if !viewModel.selectedVideoIDs.isEmpty { parts.append("動画 \(viewModel.selectedVideoIDs.count)本") }
     if viewModel.includeFavorites { parts.append("お気に入り") }
     let selection = parts.isEmpty ? "まだ何も選ばれていません" : parts.joined(separator: "・")
-    let limit = ClipPoolBuilder().maxVideos
+    let limit = viewModel.sourceLimit
     return viewModel.candidateCount > limit
       ? "\(selection)（解析は無作為に選ぶ\(limit)本まで）"
       : selection
@@ -346,28 +333,6 @@ struct MusicVideoSourcePickerSheet: View {
     let videos = dataManager.videos
     allVideos = videos.filter { $0.mediaType == .video && !$0.isInTrash }
 
-    let byID = Dictionary(videos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-    albumRows = dataManager.albums
-      .filter { $0.type != .photo }
-      .map { album in
-        var count = 0
-        var total = 0.0
-        var latest = Date.distantPast
-        for id in album.videoIDs {
-          guard let item = byID[id], item.mediaType == .video, !item.isInTrash else { continue }
-          count += 1
-          total += item.duration
-          latest = max(latest, item.importDate)
-        }
-        let components = album.name.components(separatedBy: "/")
-        return AlbumRow(
-          id: album.id,
-          title: album.displayTitle,
-          parent: components.count > 1 ? components.dropLast().joined(separator: " / ") : "",
-          count: count,
-          totalDuration: total,
-          latestImport: latest
-        )
-      }
+    albumRows = MusicVideoAlbumEntry.entries(albums: dataManager.albums, videos: videos)
   }
 }

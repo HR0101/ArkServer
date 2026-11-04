@@ -14,19 +14,33 @@ import SwiftUI
 /// | appHeadline   | 15 | カードの見出し                         |
 /// | appTitle      | 17 | シート・パネルの見出し                 |
 /// | appLargeTitle | 26 | ページの見出し（LibraryPageHeader）    |
+///
+/// 見出しの太さは .medium までにする（太字にしない）。太字は、数値の強調や警告のように意味のある所だけで使う。
+/// 同じ大きさで少し強めたい文字（行の題名・件数・状態）は、`.weight` を足さず `…Strong` を使う。
+/// 時刻・IP・キー名のような等幅の文字は `appMono…`、画面の主役になる数値は `appMetric` を使う。
 extension Font {
     static let appMicro = Font.system(size: 11)
     static let appCaption = Font.system(size: 12)
     static let appBody = Font.system(size: 13)
-    static let appHeadline = Font.system(size: 15, weight: .semibold)
-    static let appTitle = Font.system(size: 17, weight: .semibold)
-    static let appLargeTitle = Font.system(size: 26, weight: .bold)
+    static let appMicroStrong = Font.system(size: 11, weight: .medium)
+    static let appCaptionStrong = Font.system(size: 12, weight: .medium)
+    static let appBodyStrong = Font.system(size: 13, weight: .medium)
+    static let appMonoMicro = Font.system(size: 11, design: .monospaced)
+    static let appMonoCaption = Font.system(size: 12, design: .monospaced)
+    static let appMonoBody = Font.system(size: 13, design: .monospaced)
+    /// 件数のように、一目で読ませたい数値。数値だけは少し太くしてよい。
+    static let appMetric = Font.system(size: 22, weight: .semibold)
+    static let appHeadline = Font.system(size: 15, weight: .medium)
+    static let appTitle = Font.system(size: 17, weight: .medium)
+    static let appLargeTitle = Font.system(size: 26, weight: .medium)
+    /// サーバーの「停止中／配信中」のような、画面の主役になる状態の文字。
+    static let appStatus = Font.system(size: 28, weight: .medium)
 }
 
 // MARK: - デザイントークン
 
 enum DS {
-    static let cardCornerRadius: CGFloat = 16
+    static let cardCornerRadius: CGFloat = 14
     static let cardPadding: CGFloat = 20
     static let cardSpacing: CGFloat = 20
 }
@@ -36,6 +50,10 @@ enum DS {
 enum NeomorphicTheme {
     static let darkBaseDefaultsKey = "appearance.neomorphicDarkBase"
 
+    // 黒基調の面の関係は、参考にした設定画面を、このアプリと同じ方法（スクリーンショットの画素値）で測って合わせた。
+    //   窓の枠（タイトルバー・左のレール） ＞ サイドバー ＞ 内容の下地 の順に暗くなる。
+    //   設定の行をまとめる面は、サイドバーとほぼ同じ明るさ。線と選択の面は、白の約8％。
+    // つまり、内容は枠の内側にはめ込まれた一番暗いパネルに見える。
     /// 未設定のときは黒基調。動画・画像が主役のアプリなので、作品の色が映える暗い下地を既定にする。
     static var isDarkBase: Bool {
         UserDefaults.standard.object(forKey: darkBaseDefaultsKey) as? Bool ?? true
@@ -46,18 +64,18 @@ enum NeomorphicTheme {
 
     /// 内容側の下地。
     static var canvas: Color {
-        isDarkBase ? Color(white: 0.105) : Color(white: 0.965)
+        isDarkBase ? Color(white: 0.093) : Color(white: 0.965)
     }
     /// サイドバー・カードの面。下地よりわずかに明るい（黒基調）／白（明るい側）。
     static var sidebar: Color {
-        isDarkBase ? Color(white: 0.150) : Color(white: 0.925)
+        isDarkBase ? Color(white: 0.133) : Color(white: 0.925)
     }
-    /// サイドバーの左に並ぶアイコンのレール。サイドバーより一段暗くして、2列を重ねて見せる。
+    /// 窓の枠の色。左のレールとタイトルバーに使い、内側のサイドバーと内容を一段くぼませて見せる。
     static var rail: Color {
-        isDarkBase ? Color(white: 0.125) : Color(white: 0.895)
+        isDarkBase ? Color(white: 0.204) : Color(white: 0.895)
     }
     static var card: Color {
-        isDarkBase ? Color(white: 0.150) : Color.white
+        isDarkBase ? Color(white: 0.139) : Color.white
     }
     /// 入力欄・検索欄・セグメントのような、面の上に置く操作部品の地。
     static var control: Color {
@@ -68,7 +86,7 @@ enum NeomorphicTheme {
         isDarkBase ? Color.white.opacity(0.17) : Color.white
     }
     static var cardBorder: Color {
-        isDarkBase ? Color.white.opacity(0.06) : Color.black.opacity(0.07)
+        isDarkBase ? Color.white.opacity(0.08) : Color.black.opacity(0.07)
     }
     static var background: Color { canvas }
     static var surface: Color {
@@ -88,10 +106,10 @@ enum NeomorphicTheme {
     }
     /// 選択中の行・セグメント。色を付けず、面を一段明るく（暗く）するだけにする。
     static var selection: Color {
-        isDarkBase ? Color.white.opacity(0.11) : Color.black.opacity(0.08)
+        isDarkBase ? Color.white.opacity(0.09) : Color.black.opacity(0.08)
     }
     static var hover: Color {
-        isDarkBase ? Color.white.opacity(0.06) : Color.black.opacity(0.045)
+        isDarkBase ? Color.white.opacity(0.05) : Color.black.opacity(0.045)
     }
     static var shadow: Color {
         Color.black.opacity(isDarkBase ? 0.5 : 0.12)
@@ -114,7 +132,7 @@ struct SectionCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.appBody.weight(.medium))
                 .foregroundStyle(NeomorphicTheme.muted)
             content
         }
@@ -151,10 +169,10 @@ struct SheetHeader: View {
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.appTitle)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(.appCaption)
                         .foregroundStyle(NeomorphicTheme.muted)
                 }
             }
@@ -186,7 +204,7 @@ struct GlassCardSurface: View {
       .fill(NeomorphicTheme.card)
       .overlay {
         RoundedRectangle(cornerRadius: DS.cardCornerRadius, style: .continuous)
-          .strokeBorder(NeomorphicTheme.cardBorder, lineWidth: 0.5)
+          .strokeBorder(NeomorphicTheme.cardBorder, lineWidth: 1)
       }
   }
 }
@@ -201,7 +219,7 @@ struct LibraryPageHeader: View {
     HStack(alignment: .center, spacing: 16) {
       VStack(alignment: .leading, spacing: 5) {
         Text(title)
-          .font(.system(size: 26, weight: .bold))
+          .font(.appLargeTitle)
           .foregroundStyle(NeomorphicTheme.ink)
           .lineLimit(1)
           .truncationMode(.middle)
@@ -299,11 +317,11 @@ struct CardHeader: View {
                 .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.appHeadline)
                     .foregroundStyle(NeomorphicTheme.ink)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(.appCaption)
                         .foregroundStyle(NeomorphicTheme.muted)
                 }
             }
@@ -437,35 +455,6 @@ struct CopyableText: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             withAnimation { copied = false }
         }
-    }
-}
-
-// MARK: - 大きな主要アクションボタン（開始/停止用）
-
-struct ProminentActionButtonStyle: ButtonStyle {
-    let tint: Color
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 22)
-            .padding(.vertical, 9)
-            .background(
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: isEnabled
-                                ? [tint, tint.opacity(0.75)]
-                                : [Color.gray.opacity(0.45), Color.gray.opacity(0.35)],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    )
-                    .shadow(color: isEnabled ? tint.opacity(0.55) : .clear, radius: 10, x: 0, y: 3)
-            )
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 

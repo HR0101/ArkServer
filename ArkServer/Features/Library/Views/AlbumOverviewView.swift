@@ -194,10 +194,10 @@ struct AlbumOverviewView: View {
     private func sectionTitle(_ title: String, count: Int) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 12, weight: .bold, design: .default))
-                .foregroundStyle(.secondary)
+                .font(.appBody.weight(.medium))
+                .foregroundStyle(NeomorphicTheme.muted)
             Text("\(count.formatted())")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(.appMonoMicro.weight(.medium))
                 .foregroundStyle(.tertiary)
         }
         .padding(.leading, 4)

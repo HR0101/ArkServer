@@ -24,6 +24,34 @@ struct HomeView: View {
         self.linkedFolderScanStatus = dataManager.linkedFolderScanStatus
     }
 
+    /// 2列にするときの、1列あたりの最低幅。サーバーカードの「停止中」と「開始」が省略されない幅。
+    private static let homeColumnMinWidth: CGFloat = 400
+    /// ページ周囲の余白（4pt刻み）。
+    private static let homePagePadding: CGFloat = 32
+
+    /// 接続に必要な「サーバーの状態」を先頭に置く左の列。
+    private var leftColumn: some View {
+        VStack(spacing: DS.cardSpacing) {
+            ServerHeroCard(webServerManager: webServerManager)
+            connectionCard
+            scheduleCard
+            duplicateCheckCard
+            storageCard
+        }
+    }
+
+    private var rightColumn: some View {
+        VStack(spacing: DS.cardSpacing) {
+            securityCard
+            resourcesCard
+            linkedFolderCard
+            if !dataManager.linkedFolderConflicts.isEmpty {
+                linkedFolderConflictCard
+            }
+            logsCard
+        }
+    }
+
     var body: some View {
         ZStack {
             NeomorphicHomeBackground()
@@ -36,31 +64,24 @@ struct HomeView: View {
                     // 左右のカラムを独立して積むことで，縦長カードの横に空白が残らない。
                     // 接続に必要な「サーバーの状態」と「PIN認証」を各カラムの先頭に置く
                     // （以前の「設定の概要」は，すぐ下の設定カードと同じ項目の繰り返しだったので廃止）。
-                    HStack(alignment: .top, spacing: DS.cardSpacing) {
-                        VStack(spacing: DS.cardSpacing) {
-                            ServerHeroCard(webServerManager: webServerManager)
-                            connectionCard
-                            scheduleCard
-                            duplicateCheckCard
-                            storageCard
+                    // 各列には、サーバー状態と「開始/停止」が文字で読める最低幅(homeColumnMinWidth)を確保する。
+                    // 2列分の幅がないときは、同じ順序のまま1列に積む（サイドバー表示つきの最小ウィンドウ幅など）。
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: DS.cardSpacing) {
+                            leftColumn
+                                .frame(minWidth: Self.homeColumnMinWidth, maxWidth: .infinity, alignment: .top)
+                            rightColumn
+                                .frame(minWidth: Self.homeColumnMinWidth, maxWidth: .infinity, alignment: .top)
                         }
-                        .frame(maxWidth: .infinity, alignment: .top)
-
                         VStack(spacing: DS.cardSpacing) {
-                            securityCard
-                            resourcesCard
-                            linkedFolderCard
-                            if !dataManager.linkedFolderConflicts.isEmpty {
-                                linkedFolderConflictCard
-                            }
-                            logsCard
+                            leftColumn
+                            rightColumn
                         }
-                        .frame(maxWidth: .infinity, alignment: .top)
                     }
                 }
                 .frame(maxWidth: 1040)
-                .padding(.horizontal, 30)
-                .padding(.vertical, 30)
+                .padding(.horizontal, Self.homePagePadding)
+                .padding(.vertical, Self.homePagePadding)
                 .frame(maxWidth: .infinity)
             }
         }
@@ -171,7 +192,7 @@ struct HomeView: View {
 
             SettingRow(label: "リンク中のフォルダ") {
                 Text("\(count)フォルダ")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.appBodyStrong)
                     .monospacedDigit()
             }
 
@@ -227,11 +248,11 @@ struct HomeView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("リンクフォルダを更新中…")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.appCaptionStrong)
                 Spacer()
                 if status.totalCount > 0 {
                     Text("\(min(status.processedCount + 1, status.totalCount)) / \(status.totalCount)")
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.appMonoMicro)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -253,7 +274,7 @@ struct HomeView: View {
                     Spacer()
                     if status.processedItemsInCurrentFolder > 0 {
                         Text("\(status.processedItemsInCurrentFolder)件取り込み")
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.appMonoMicro)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -284,7 +305,7 @@ struct HomeView: View {
                             .foregroundStyle(.yellow)
                             .font(.appCaption)
                         Text(conflict.albumName)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.appCaptionStrong)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer()
@@ -319,8 +340,10 @@ struct HomeView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(NeomorphicTheme.surface)
-                                .shadow(color: .white.opacity(0.86), radius: 4, x: -3, y: -3)
-                                .shadow(color: NeomorphicTheme.shadow.opacity(0.22), radius: 7, x: 4, y: 4)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .strokeBorder(NeomorphicTheme.cardBorder, lineWidth: 1)
+                                )
                         )
                     }
                 }
@@ -337,7 +360,7 @@ struct HomeView: View {
     private func duplicateAlbumList(title: String, albums: [Album], emptyMessage: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.appMicroStrong)
                 .foregroundStyle(.secondary)
 
             if albums.isEmpty {
@@ -353,7 +376,7 @@ struct HomeView: View {
                             .truncationMode(.middle)
                         Spacer()
                         Text("\(album.videoIDs.count)件")
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.appMonoMicro)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -546,7 +569,7 @@ struct HomeView: View {
                 AxisMarks(values: [0, 50, 100]) {
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3]))
                     AxisValueLabel()
-                        .font(.system(size: 8))
+                        .font(.appMicro.monospacedDigit())
                 }
             }
             .frame(height: 90)
@@ -565,12 +588,12 @@ struct HomeView: View {
 
             SettingRow(label: "総アイテム数") {
                 Text("\(dataManager.videos.count)件")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.appBodyStrong)
                     .monospacedDigit()
             }
             SettingRow(label: "使用容量") {
                 Text(dataManager.totalStorageSizeText)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.appBodyStrong)
                     .monospacedDigit()
             }
 
@@ -593,7 +616,7 @@ struct HomeView: View {
                 CardHeader(icon: "network.badge.shield.half.filled", tint: NeomorphicTheme.accent, title: "最近のアクセス", subtitle: "端末からの通信履歴（接続台数ではありません）")
                 Spacer()
                 Button("すべて見る") { isShowingAccessLog = true }
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.appMicroStrong)
                     .buttonStyle(.plain)
                     .foregroundStyle(NeomorphicTheme.muted)
             }
@@ -626,7 +649,7 @@ struct HomeView: View {
                     ForEach(filteredLogs.prefix(15)) { entry in
                         HStack(spacing: 8) {
                             Text(entry.date.formatted(.dateTime.hour().minute().second()))
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.appMonoMicro)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 58, alignment: .leading)
 
@@ -635,7 +658,7 @@ struct HomeView: View {
                                 .font(.appMicro)
 
                             Text(entry.method)
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(.appMonoMicro.weight(.medium))
                                 .foregroundStyle(entry.method == "GET" ? .blue : .purple)
                                 .frame(width: 36, alignment: .leading)
 
@@ -648,7 +671,7 @@ struct HomeView: View {
                             Spacer(minLength: 5)
 
                             Text(entry.ip)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.appMonoMicro)
                                 .foregroundStyle(.tertiary)
                         }
                         .padding(.vertical, 4)
@@ -656,8 +679,6 @@ struct HomeView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                 .fill(NeomorphicTheme.surface)
-                                .shadow(color: .white.opacity(0.72), radius: 2, x: -1, y: -1)
-                                .shadow(color: NeomorphicTheme.shadow.opacity(0.16), radius: 4, x: 2, y: 2)
                         )
                     }
                 }
