@@ -81,11 +81,11 @@ struct MusicVideoCutEditorView: View {
   }
 
   private var moreMenu: some View {
-    Menu {
+    AppChoiceMenu {
       Button("この動画を使っているカットをすべて差し替え") { viewModel.replaceAllUsesOfSelectedVideo() }
       Button("この動画を外す（以後も使わない）") { viewModel.excludeSelectedVideo() }
       Divider()
-      Menu("指定の動画に差し替え") {
+      AppChoiceMenu("指定の動画に差し替え") {
         ForEach(viewModel.poolVideos) { video in
           Button(video.name) { viewModel.replaceSelectedCut(withVideo: video.id) }
         }
@@ -93,7 +93,7 @@ struct MusicVideoCutEditorView: View {
     } label: {
       Text("その他")
     }
-    .menuStyle(.button)
+
     .buttonStyle(.quiet)
     .menuIndicator(.visible)
     .fixedSize()

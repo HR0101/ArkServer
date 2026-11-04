@@ -167,7 +167,7 @@ struct SettingsPageView: View {
           SettingsSwitch(title: "インポート時にファイルをアプリ内へコピー", isOn: $dataManager.importCopiesFiles)
         }
         SettingsRow(title: "ゴミ箱の自動削除", detail: "ゴミ箱に入れてから指定日数が経過した項目を，起動時に完全削除します．") {
-          Picker("ゴミ箱の自動削除", selection: $dataManager.trashAutoDeleteDays) {
+          AppChoicePicker("ゴミ箱の自動削除", selection: $dataManager.trashAutoDeleteDays) {
             Text("しない").tag(0)
             Text("30日後").tag(30)
             Text("90日後").tag(90)
@@ -209,7 +209,7 @@ struct SettingsPageView: View {
           title: "アップロード上限",
           detail: "受信中のファイルは丸ごとメモリに読み込まれるため，搭載メモリ（\(Self.physicalMemoryGB) GB）の半分までしか選べません．"
         ) {
-          Picker("アップロード上限", selection: $webServerManager.maxUploadGB) {
+          AppChoicePicker("アップロード上限", selection: $webServerManager.maxUploadGB) {
             ForEach(ServerViewModel.uploadLimitOptionsGB, id: \.self) { gb in
               Text("\(gb) GB").tag(gb)
             }
@@ -227,7 +227,7 @@ struct SettingsPageView: View {
     SettingsSection(title: "処理の負荷") {
       SettingsGroup {
         SettingsRow(title: "自動重複チェックの間隔") {
-          Picker("自動重複チェックの間隔", selection: $dataManager.duplicateCheckIntervalSeconds) {
+          AppChoicePicker("自動重複チェックの間隔", selection: $dataManager.duplicateCheckIntervalSeconds) {
             Text("30秒").tag(30)
             Text("1分").tag(60)
             Text("5分").tag(300)
@@ -237,7 +237,7 @@ struct SettingsPageView: View {
           .fixedSize()
         }
         SettingsRow(title: "インポートの並列数") {
-          Picker("インポートの並列数", selection: $dataManager.importConcurrency) {
+          AppChoicePicker("インポートの並列数", selection: $dataManager.importConcurrency) {
             Text("2（省電力）").tag(2)
             Text("4（標準）").tag(4)
             Text("8（高速）").tag(8)
@@ -246,7 +246,7 @@ struct SettingsPageView: View {
           .fixedSize()
         }
         SettingsRow(title: "サムネイルのメモリキャッシュ上限") {
-          Picker("サムネイルのメモリキャッシュ上限", selection: $thumbnailMemoryCacheLimit) {
+          AppChoicePicker("サムネイルのメモリキャッシュ上限", selection: $thumbnailMemoryCacheLimit) {
             Text("200枚（省メモリ）").tag(200)
             Text("600枚（標準）").tag(600)
             Text("1200枚（大量表示向け）").tag(1200)

@@ -79,7 +79,7 @@ struct MusicVideoView: View {
         viewModel.exportToLibrary(dataManager: dataManager, destination: destination)
       }
     }
-    .alert(
+    .appAlert(
       "処理に失敗しました",
       isPresented: Binding(
         get: { viewModel.errorMessage != nil },
@@ -90,7 +90,7 @@ struct MusicVideoView: View {
     } message: {
       Text(viewModel.errorMessage ?? "不明なエラーです．")
     }
-    .alert(
+    .appAlert(
       "書き出しが完了しました",
       isPresented: Binding(
         get: { viewModel.resultMessage != nil },
@@ -469,14 +469,14 @@ struct MusicVideoView: View {
   }
 
   private var recentMenu: some View {
-    Menu {
+    AppChoiceMenu {
       ForEach(viewModel.recentMusicURLs, id: \.self) { url in
         Button(url.deletingPathExtension().lastPathComponent) { viewModel.chooseMusic(url) }
       }
     } label: {
       Text("最近")
     }
-    .menuStyle(.button)
+
     .buttonStyle(.quiet)
     .menuIndicator(.visible)
     .fixedSize()
@@ -540,7 +540,7 @@ struct MusicVideoView: View {
             .fixedSize(horizontal: false, vertical: true)
           HStack(spacing: 8) {
             Toggle("お気に入りを含める", isOn: $viewModel.includeFavorites)
-              .toggleStyle(MusicVideoCheckStyle())
+              .toggleStyle(AppToggleStyle(isCheckbox: true))
             Spacer(minLength: 0)
             if !(viewModel.selectedAlbumIDs.isEmpty && viewModel.selectedVideoIDs.isEmpty) {
               Button("解除") { viewModel.clearSourceSelection() }
@@ -626,16 +626,16 @@ struct MusicVideoView: View {
     HStack(spacing: 8) {
         if viewModel.isWorking {
           Button("中止") { viewModel.cancelWork() }
-            .buttonStyle(MusicVideoActionStyle())
+            .buttonStyle(AppActionButtonStyle())
             .accessibilityIdentifier("musicvideo.cancel")
         } else {
           if viewModel.plan != nil {
             Button("ファイルに保存…") { saveToFile() }
-              .buttonStyle(MusicVideoActionStyle())
+              .buttonStyle(AppActionButtonStyle())
               .disabled(!viewModel.canExport)
               .accessibilityIdentifier("musicvideo.saveFile")
             Button("ライブラリに追加…") { isShowingExportAlbumPicker = true }
-              .buttonStyle(MusicVideoActionStyle())
+              .buttonStyle(AppActionButtonStyle())
               .disabled(!viewModel.canExport)
               .help("追加するアルバムを選んで，書き出してライブラリに追加します")
               .accessibilityIdentifier("musicvideo.exportLibrary")
@@ -643,7 +643,7 @@ struct MusicVideoView: View {
           Button(viewModel.plan == nil ? "映像を作る" : "作り直す") {
             viewModel.generate(dataManager: dataManager)
           }
-          .buttonStyle(MusicVideoActionStyle(isPrimary: true))
+          .buttonStyle(AppActionButtonStyle(isPrimary: true))
           .disabled(!viewModel.canGenerate)
           .help(viewModel.plan == nil ? "曲に合わせて映像を作ります" : "別のカット割りで作り直します")
           .accessibilityIdentifier("musicvideo.generate")

@@ -70,7 +70,7 @@ struct SceneExtractionView: View {
     ) {
       SceneExtractionTutorialView()
     }
-    .alert(
+    .appAlert(
       "処理に失敗しました",
       isPresented: Binding(
         get: { viewModel.errorMessage != nil },
@@ -83,7 +83,7 @@ struct SceneExtractionView: View {
     } message: {
       Text(viewModel.errorMessage ?? "不明なエラーです．")
     }
-    .alert(
+    .appAlert(
       "処理が完了しました",
       isPresented: Binding(
         get: { viewModel.lastOperationMessage != nil },
@@ -166,13 +166,13 @@ struct SceneExtractionView: View {
           Label("候補を解析", systemImage: "waveform.path.ecg")
         }
         // この画面の主役の操作なので、ここだけ青の塗りにする。
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(AppActionButtonStyle(isPrimary: true))
         .tint(NeomorphicTheme.accent)
         .disabled(viewModel.videoDocument == nil || viewModel.isLoadingVideo)
       }
 
       Toggle("GTラベル付与モード", isOn: $viewModel.isGroundTruthModeEnabled)
-        .toggleStyle(.switch)
+        .toggleStyle(AppToggleStyle())
 
       Button {
         viewModel.addGroundTruthAtCurrentTime()

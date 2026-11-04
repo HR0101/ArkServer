@@ -56,7 +56,7 @@ struct MediaGridControlBar: View {
         Rectangle().fill(NeomorphicTheme.separator).frame(height: 0.5)
       }
       // メニューのグレーの枠は付けず、文字とアイコンだけの軽い見た目にする。
-      .menuStyle(.borderlessButton)
+
     }
 
     @ViewBuilder
@@ -64,7 +64,7 @@ struct MediaGridControlBar: View {
       if showsSortControls {
         // 「短い順」の横に ↓ / ↑ だけのボタンを並べると，矢印が何を指すのか分からない．
         // 逆順はメニューの中のチェック項目にし，効いているときはラベルに「（逆順）」と出す．
-        Menu {
+        AppChoiceMenu {
           ForEach(SortOrder.allCases) { order in
             Toggle(order.rawValue, isOn: Binding(
               get: { appSettings.sortOrder == order },
@@ -91,7 +91,7 @@ struct MediaGridControlBar: View {
 
     private var thumbnailControls: some View {
       HStack(spacing: 6) {
-        Menu {
+        AppChoiceMenu {
           ForEach(ThumbnailOption.allCases) { option in
             Button(option.rawValue) { appSettings.thumbnailOption = option }
           }
@@ -101,7 +101,7 @@ struct MediaGridControlBar: View {
         .fixedSize()
         if appSettings.thumbnailOption == .custom {
           HStack(spacing: 4) {
-            Stepper("サムネイルの秒数", value: $appSettings.customThumbnailTime, in: 0...3600, step: 1)
+            AppNumberStepper(value: $appSettings.customThumbnailTime, in: 0...3600, step: 1) { EmptyView() }
               .labelsHidden()
             TextField("秒", value: $appSettings.customThumbnailTime, formatter: Self.secondsFormatter)
               .frame(width: 46)
@@ -114,7 +114,7 @@ struct MediaGridControlBar: View {
     }
 
     private var displayControls: some View {
-      Menu {
+      AppChoiceMenu {
         Toggle("タイトルを表示", isOn: $appSettings.showTitles)
         Toggle("インポート日を表示", isOn: $appSettings.showImportDates)
       } label: {

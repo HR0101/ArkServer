@@ -170,7 +170,7 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity)
             }
             // 補助の操作は塗りつぶさない（青い全幅ボタンが並ぶと、本当の主役である「開始」が埋もれる）。
-            .buttonStyle(.bordered)
+            .buttonStyle(AppActionButtonStyle())
             .tint(NeomorphicTheme.ink)
             .disabled(duplicateCheckStatus.isAutoChecking || dataManager.isDuplicateCheckRunning || totalCount == 0)
             .help("自動チェックのオン/オフに関わらず，対象アルバムの重複をまとめて今すぐチェックします．")
@@ -226,7 +226,7 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity)
             }
             // 補助の操作は塗りつぶさない（青い全幅ボタンが並ぶと、本当の主役である「開始」が埋もれる）。
-            .buttonStyle(.bordered)
+            .buttonStyle(AppActionButtonStyle())
             .tint(NeomorphicTheme.ink)
             .disabled(status.isScanning || count == 0)
 
@@ -332,7 +332,7 @@ struct HomeView: View {
                             } label: {
                                 Label("選択", systemImage: "checkmark.circle")
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(AppActionButtonStyle())
             .tint(NeomorphicTheme.ink)
                             .controlSize(.small)
                         }
@@ -452,16 +452,16 @@ struct HomeView: View {
             if webServerManager.scheduleEnabled {
                 Divider()
 
-                DatePicker("起動時刻", selection: $webServerManager.scheduleStartTime, displayedComponents: .hourAndMinute)
+                AppTimePicker("起動時刻", selection: $webServerManager.scheduleStartTime, displayedComponents: .hourAndMinute)
                     .font(.appCaption)
-                DatePicker("停止時刻", selection: $webServerManager.scheduleStopTime, displayedComponents: .hourAndMinute)
+                AppTimePicker("停止時刻", selection: $webServerManager.scheduleStopTime, displayedComponents: .hourAndMinute)
                     .font(.appCaption)
 
                 Button(action: { webServerManager.applySchedule() }) {
                     Label("このスケジュールを適用", systemImage: "checkmark.circle")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(AppActionButtonStyle())
             .tint(NeomorphicTheme.ink)
 
                 Text("適用時に管理者パスワードの入力を求められます（スリープからの自動起床設定のため）．停止時刻になるとアプリは完全終了します．")
@@ -603,7 +603,7 @@ struct HomeView: View {
                 Label("ストレージ管理を開く", systemImage: "slider.horizontal.3")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(AppActionButtonStyle())
             .tint(NeomorphicTheme.ink)
         }
         .dashboardCard()

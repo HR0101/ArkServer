@@ -101,7 +101,7 @@ struct StorageManagerView: View {
         .frame(width: 540, height: 660)
         .appSheet()
         .onAppear(perform: viewModel.refreshUsage)
-        .alert("クリーンアップ完了", isPresented: $viewModel.isShowingResultAlert) {
+        .appAlert("クリーンアップ完了", isPresented: $viewModel.isShowingResultAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(viewModel.resultMessage)

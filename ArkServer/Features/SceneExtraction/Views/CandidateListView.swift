@@ -224,7 +224,7 @@ struct CandidateListView: View {
       .padding(.vertical, 5)
     }
     // 塗りつぶさず、色は文字と薄い面だけにする（3色の塗りが並ぶと、判定ボタンが画面で一番目立ってしまう）。
-    .buttonStyle(.bordered)
+    .buttonStyle(AppActionButtonStyle())
     .tint(labelColor(label))
   }
 

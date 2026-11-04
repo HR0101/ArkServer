@@ -242,7 +242,7 @@ struct SimilarMediaView: View {
                 } label: {
                     Label("選択した\(model.selectedIDs.count)件を削除", systemImage: "trash")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(AppActionButtonStyle(isPrimary: true))
                 .disabled(model.selectedIDs.isEmpty || model.isScanning)
             }
         }

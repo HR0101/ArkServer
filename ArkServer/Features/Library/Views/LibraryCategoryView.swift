@@ -245,7 +245,7 @@ struct LibraryCategoryView: View {
                 // 複数選択時の再生方法は4種類あり，アイコンだけを並べると見分けにくいので1つのメニューにまとめる。
                 ToolbarItem(placement: .primaryAction) {
                     if selectedItems.count >= 2 {
-                        Menu {
+                        AppChoiceMenu {
                             Button {
                                 startMultiPlayback(selectedItems)
                             } label: {
@@ -308,7 +308,7 @@ struct LibraryCategoryView: View {
                 }
             }
         }
-        .confirmationDialog("ゴミ箱を空にする方法を選んでください", isPresented: $showEmptyTrashAlert, titleVisibility: .visible) {
+        .appConfirmationPanel("ゴミ箱を空にする方法を選んでください", isPresented: $showEmptyTrashAlert, titleVisibility: .visible) {
             Button("完全に削除", role: .destructive) { dataManager.emptyTrash() }
             Button("実ファイルをMacのゴミ箱へ移動", role: .destructive) {
                 dataManager.moveMediaFilesToSystemTrash(
@@ -319,7 +319,7 @@ struct LibraryCategoryView: View {
         } message: {
             Text("完全に削除するとアプリ管理内のファイルは復元できません．Macのゴミ箱へ移動するとFinderから復元できます．")
         }
-        .confirmationDialog("再生履歴を消去しますか？", isPresented: $showClearHistoryAlert, titleVisibility: .visible) {
+        .appConfirmationPanel("再生履歴を消去しますか？", isPresented: $showClearHistoryAlert, titleVisibility: .visible) {
             Button("消去", role: .destructive) {
                 watchState.clearHistory()
                 selectedVideoIDs.removeAll()
@@ -328,7 +328,7 @@ struct LibraryCategoryView: View {
         } message: {
             Text("動画そのものと「続きから」の視聴位置は消えません．ブラウザや iPhone の履歴からも消えます．")
         }
-        .alert("エクスポート完了", isPresented: $showExportResultAlert) {
+        .appAlert("エクスポート完了", isPresented: $showExportResultAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(exportResultMessage)
@@ -353,7 +353,7 @@ struct LibraryCategoryView: View {
                 }
             )
         }
-        .alert("新規アルバムに移動", isPresented: $showMoveToNewAlbumAlert) {
+        .appAlert("新規アルバムに移動", isPresented: $showMoveToNewAlbumAlert) {
             TextField("アルバム名", text: $newAlbumNameForMove)
             Button("作成して追加") {
                 let name = newAlbumNameForMove.trimmingCharacters(in: .whitespaces)
@@ -377,7 +377,7 @@ struct LibraryCategoryView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                Stepper("分割数: \(splitCount)", value: $splitCount, in: 2...9)
+                AppNumberStepper("分割数: \(splitCount)", value: $splitCount, in: 2...9)
                     .frame(width: 200)
                 Text("動画を\(splitCount)等分して\(splitCount)画面で同時再生します")
                     .font(.appCaption)
@@ -392,7 +392,7 @@ struct LibraryCategoryView: View {
                         }
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(AppActionButtonStyle(isPrimary: true))
                 }
             }
             .padding(30)
@@ -854,7 +854,7 @@ struct LibraryCategoryView: View {
           Text("「\(searchText)」に一致するタイトルは見つかりませんでした．")
         } actions: {
           Button("検索を解除") { searchText = "" }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(AppActionButtonStyle(isPrimary: true))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {

@@ -104,7 +104,7 @@ struct MusicVideoSourcePickerView: View {
       VStack(spacing: 8) {
         searchField("アルバム名で検索", text: $albumSearch)
         HStack(spacing: 10) {
-          Picker("並べ替え", selection: $albumOrder) {
+          AppChoicePicker("並べ替え", selection: $albumOrder) {
             ForEach(MusicVideoAlbumOrder.allCases) { Text($0.rawValue).tag($0) }
           }
           .labelsHidden()
@@ -113,13 +113,13 @@ struct MusicVideoSourcePickerView: View {
             .fixedSize()
             .help("動画が1本もないアルバムを一覧から隠します")
           Spacer(minLength: 0)
-          Menu {
+          AppChoiceMenu {
             Button("表示中のアルバムをすべて選ぶ") { viewModel.selectedAlbumIDs.formUnion(rows.map(\.id)) }
             Button("表示中のアルバムの選択を外す") { viewModel.selectedAlbumIDs.subtract(rows.map(\.id)) }
           } label: {
             Text("まとめて")
           }
-          .menuStyle(.button)
+
           .buttonStyle(.quiet)
           .menuIndicator(.visible)
           .fixedSize()
@@ -287,13 +287,13 @@ struct MusicVideoSourcePickerView: View {
             Button(isSelected ? "アルバムの選択を外す" : "このアルバムごと選ぶ") { toggleAlbum(id) }
               .buttonStyle(.quiet)
           }
-          Menu {
+          AppChoiceMenu {
             Button("表示中の動画をすべて選ぶ") { viewModel.selectedVideoIDs.formUnion(videos.map(\.id)) }
             Button("表示中の動画の選択を外す") { viewModel.selectedVideoIDs.subtract(videos.map(\.id)) }
           } label: {
             Text("まとめて")
           }
-          .menuStyle(.button)
+
           .buttonStyle(.quiet)
           .menuIndicator(.visible)
           .fixedSize()
@@ -351,7 +351,7 @@ struct MusicVideoSourcePickerView: View {
   }
 
   private var videoOrderPicker: some View {
-    Picker("並べ替え", selection: $videoOrder) {
+    AppChoicePicker("並べ替え", selection: $videoOrder) {
       ForEach(MusicVideoVideoOrder.allCases) { Text($0.rawValue).tag($0) }
     }
     .labelsHidden()
@@ -359,7 +359,7 @@ struct MusicVideoSourcePickerView: View {
   }
 
   private var minimumLengthPicker: some View {
-    Picker("長さ", selection: $minimumLength) {
+    AppChoicePicker("長さ", selection: $minimumLength) {
       Text("すべての長さ").tag(1.0)
       Text("5秒以上").tag(5.0)
       Text("10秒以上").tag(10.0)
@@ -462,7 +462,7 @@ struct MusicVideoSourcePickerView: View {
       Button("すべて解除") { viewModel.clearSourceSelection() }
         .disabled(viewModel.selectedAlbumIDs.isEmpty && viewModel.selectedVideoIDs.isEmpty && !viewModel.includeFavorites)
       Button("完了", action: close)
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(AppActionButtonStyle(isPrimary: true))
         .keyboardShortcut(.defaultAction)
         .accessibilityIdentifier("musicvideo.sourceDone")
     }

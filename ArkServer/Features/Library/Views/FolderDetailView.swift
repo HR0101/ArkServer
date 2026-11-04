@@ -102,7 +102,7 @@ struct FolderDetailView: View {
                 }
             }
         }
-        .alert("新規アルバムに移動", isPresented: $showMoveToNewAlbumAlert) {
+        .appAlert("新規アルバムに移動", isPresented: $showMoveToNewAlbumAlert) {
             TextField("アルバム名", text: $newAlbumNameForMove)
             Button("移動", action: moveToNewAlbum)
             Button("キャンセル", role: .cancel) {
