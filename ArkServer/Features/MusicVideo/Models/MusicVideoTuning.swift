@@ -257,10 +257,32 @@ extension MusicAnalysis {
     let length = end - start
     guard length > 0 else { return self }
 
-    let newBeats = beats.filter { $0 >= start && $0 < end }.map { $0 - start }
-    guard energyHop > 0, !energy.isEmpty else {
-      return MusicAnalysis(duration: length, tempo: tempo, beats: newBeats, energy: energy, intensity: intensity, energyHop: energyHop)
+    // 拍: 範囲に入るものだけを、0 秒を先頭にずらして残す。強さ・小節の頭も、残した拍に合わせる。
+    let keptIndices = beats.indices.filter { beats[$0] >= start && beats[$0] < end }
+    let newBeats = keptIndices.map { beats[$0] - start }
+    let firstKept = keptIndices.first ?? 0
+    var result = MusicAnalysis(duration: length, tempo: tempo, beats: newBeats, energy: energy, intensity: intensity, energyHop: energyHop)
+    result.beatsPerBar = beatsPerBar
+    if beatAccents.count == beats.count {
+      result.beatAccents = keptIndices.map { beatAccents[$0] }
     }
+    if let downbeatPhase, beatsPerBar > 0 {
+      result.downbeatPhase = ((downbeatPhase - firstKept) % beatsPerBar + beatsPerBar) % beatsPerBar
+    }
+    result.sectionBoundaries = sectionBoundaries.filter { $0 > start && $0 < end }.map { $0 - start }
+
+    // onset の細かい強さ: 範囲の先頭の位置から切り出す。
+    if !onsetEnvelope.isEmpty, onsetHop > 0 {
+      let first = Int((start / onsetHop).rounded(.down))
+      let count = Int((length / onsetHop).rounded(.up))
+      result.onsetHop = onsetHop
+      result.onsetEnvelope = (0..<count).map { offset in
+        onsetEnvelope.indices.contains(first + offset) ? onsetEnvelope[first + offset] : 0
+      }
+    }
+
+    // 盛り上がり: 範囲に合わせて切り出す。
+    guard energyHop > 0, !energy.isEmpty else { return result }
     let count = max(1, Int((length / energyHop).rounded(.up)))
     var newEnergy: [Double] = []
     var newIntensity: [MusicIntensity] = []
@@ -271,14 +293,9 @@ extension MusicAnalysis {
       newEnergy.append(energy(at: sourceTime))
       newIntensity.append(intensity(at: sourceTime))
     }
-    return MusicAnalysis(
-      duration: length,
-      tempo: tempo,
-      beats: newBeats,
-      energy: newEnergy,
-      intensity: newIntensity,
-      energyHop: energyHop
-    )
+    result.energy = newEnergy
+    result.intensity = newIntensity
+    return result
   }
 
   /// `time` に最も近い拍の時刻。拍が無ければ `time` のまま。範囲の開始を拍に合わせるときに使う。

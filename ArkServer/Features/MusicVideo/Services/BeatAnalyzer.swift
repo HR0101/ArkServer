@@ -141,7 +141,7 @@ nonisolated struct BeatAnalyzer: Sendable {
       onset: onset,
       framesPerSecond: framesPerSecond
     )
-    return MusicAnalysis(
+    var analysis = MusicAnalysis(
       duration: duration,
       tempo: tempo,
       beats: beats,
@@ -149,6 +149,24 @@ nonisolated struct BeatAnalyzer: Sendable {
       intensity: intensity,
       energyHop: energyHop
     )
+
+    // 映像の動きを曲に細かく合わせるための情報: 拍の強さ・小節の頭・構造の境目・細かい onset。
+    let structure = MusicStructureAnalyzer.analyze(
+      onset: onset,
+      framesPerSecond: framesPerSecond,
+      onsetOffset: onsetOffset,
+      beats: beats,
+      structureFeature: makeStructureFeature(loudness: features.loudness, onset: onset, framesPerSecond: framesPerSecond),
+      featureHop: energyHop,
+      duration: duration
+    )
+    analysis.beatAccents = structure.beatAccents
+    analysis.beatsPerBar = structure.beatsPerBar
+    analysis.downbeatPhase = structure.downbeatPhase
+    analysis.onsetEnvelope = structure.onsetEnvelope
+    analysis.onsetHop = structure.onsetHop
+    analysis.sectionBoundaries = structure.sectionBoundaries
+    return analysis
   }
 
   // MARK: - フレームごとの特徴
@@ -355,11 +373,12 @@ nonisolated struct BeatAnalyzer: Sendable {
 
   // MARK: - 盛り上がり
 
-  private func makeEnergyAndIntensity(
+  /// 音量と onset を、`energyHop` 秒ごとの平均にまとめる。
+  private func blockAverages(
     loudness: [Double],
     onset: [Double],
     framesPerSecond: Double
-  ) -> (energy: [Double], intensity: [MusicIntensity]) {
+  ) -> (loud: [Double], onset: [Double]) {
     let blockFrames = max(1, Int((framesPerSecond * energyHop).rounded()))
     let blockCount = max(1, min(loudness.count, onset.count) / blockFrames)
     var loudBlocks = [Double](repeating: 0, count: blockCount)
@@ -373,6 +392,25 @@ nonisolated struct BeatAnalyzer: Sendable {
         onsetBlocks[block] = onsetRange.reduce(0) { $0 + onset[$1] } / Double(onsetRange.count)
       }
     }
+    return (loudBlocks, onsetBlocks)
+  }
+
+  /// 曲の構造(サビ・ドロップなど)を見るための盛り上がり。`makeEnergyAndIntensity` より短い(0.4秒前後)平滑化にして、
+  /// 変わり目の位置がぼやけないようにする。
+  private func makeStructureFeature(loudness: [Double], onset: [Double], framesPerSecond: Double) -> [Double] {
+    let (loudBlocks, onsetBlocks) = blockAverages(loudness: loudness, onset: onset, framesPerSecond: framesPerSecond)
+    let radius = max(1, Int(0.4 / energyHop))
+    let loud = normalizedByPercentiles(movingAverage(loudBlocks, radius: radius))
+    let rhythmic = normalizedByPercentiles(movingAverage(onsetBlocks, radius: radius))
+    return normalizedByPercentiles(zip(loud, rhythmic).map { 0.6 * $0 + 0.4 * $1 })
+  }
+
+  private func makeEnergyAndIntensity(
+    loudness: [Double],
+    onset: [Double],
+    framesPerSecond: Double
+  ) -> (energy: [Double], intensity: [MusicIntensity]) {
+    let (loudBlocks, onsetBlocks) = blockAverages(loudness: loudness, onset: onset, framesPerSecond: framesPerSecond)
 
     // 1.5秒前後で平滑化して、短い揺れで段階が変わらないようにする。
     let smoothingRadius = max(1, Int(1.5 / energyHop))
