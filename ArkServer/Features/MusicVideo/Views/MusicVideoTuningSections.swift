@@ -179,7 +179,11 @@ struct MusicVideoTuningSections: View {
 
   private var renderDetail: String {
     let size = viewModel.renderPreset.settings
-    return "完成映像の大きさです．いま \(size.width)×\(size.height)．"
+    var text = "完成映像の大きさです．いま \(size.width)×\(size.height)．"
+    if viewModel.renderPreset.isPortrait {
+      text += "\n縦向きは一時的な選択です．アプリを開き直すと、横に戻ります．"
+    }
+    return text
   }
 
   private var fadeDetail: String {
