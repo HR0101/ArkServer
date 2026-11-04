@@ -15,6 +15,8 @@ struct MusicVideoView: View {
 
   @State private var isDropTargeted = false
   @State private var isShowingSourcePicker = false
+  /// 素材・曲を選ぶ画面から戻ったとき、スクロールして見せる欄(`sourceAnchor` か `musicAnchor`)。
+  @State private var returnAnchor: String?
   @State private var isShowingMusicPicker = false
   @State private var isShowingExportAlbumPicker = false
   /// プレビューを全画面で開く。
@@ -24,6 +26,8 @@ struct MusicVideoView: View {
   @State private var dragStartRatio: Double?
 
   private static let topAnchor = "musicvideo.top"
+  private static let sourceAnchor = "musicvideo.source"
+  private static let musicAnchor = "musicvideo.music"
 
   /// プレビューを上に固定できる窓の高さ。これより低いときは、プレビューも一緒にスクロールする。
   private static let pinnedPreviewMinimumHeight: CGFloat = 640
@@ -36,6 +40,67 @@ struct MusicVideoView: View {
   private static let inlinePreviewContentHeight: CGFloat = 480
 
   var body: some View {
+    Group {
+      if isShowingSourcePicker {
+        // 素材を選ぶあいだは、画面全体を使う(ポップアップにしない)。
+        MusicVideoSourcePickerView(viewModel: viewModel, dataManager: dataManager) {
+          isShowingSourcePicker = false
+        }
+      } else if isShowingMusicPicker {
+        // 曲を選ぶあいだも、画面全体を使う。
+        MusicVideoMusicPickerView(viewModel: viewModel) {
+          isShowingMusicPicker = false
+        }
+      } else {
+        mainContent
+      }
+    }
+    .background(CommandDeckBackground())
+    .navigationTitle("ミュージックビデオ")
+    // 設定画面と同じく、スイッチなどの「入」の色は青にする（内容側の既定は文字色の中立色）。
+    .tint(NeomorphicTheme.accent)
+    .overlay {
+      if isDropTargeted {
+        RoundedRectangle(cornerRadius: DS.cardCornerRadius, style: .continuous)
+          .strokeBorder(NeomorphicTheme.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+          .padding(8)
+          .allowsHitTesting(false)
+      }
+    }
+    .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleMusicDrop)
+    .onAppear { viewModel.attach(dataManager: dataManager) }
+    .onDisappear { viewModel.stopAllPlayback() }
+    .sheet(isPresented: $isShowingExportAlbumPicker) {
+      MusicVideoExportAlbumSheet(dataManager: dataManager, fileName: viewModel.suggestedFileName) { destination in
+        viewModel.exportToLibrary(dataManager: dataManager, destination: destination)
+      }
+    }
+    .alert(
+      "処理に失敗しました",
+      isPresented: Binding(
+        get: { viewModel.errorMessage != nil },
+        set: { if !$0 { viewModel.clearError() } }
+      )
+    ) {
+      Button("OK", role: .cancel) { viewModel.clearError() }
+    } message: {
+      Text(viewModel.errorMessage ?? "不明なエラーです．")
+    }
+    .alert(
+      "書き出しが完了しました",
+      isPresented: Binding(
+        get: { viewModel.resultMessage != nil },
+        set: { if !$0 { viewModel.clearResultMessage() } }
+      )
+    ) {
+      Button("OK", role: .cancel) { viewModel.clearResultMessage() }
+    } message: {
+      Text(viewModel.resultMessage ?? "")
+    }
+  }
+
+  /// ミュージックビデオの本体(プレビュー・曲・素材・調整項目)。
+  private var mainContent: some View {
     GeometryReader { geometry in
       // 調整項目を変えたときの変化をその場で見られるよう、窓が十分に高ければ、プレビューを上に固定する。
       let pinsPreview = viewModel.plan != nil && geometry.size.height >= Self.pinnedPreviewMinimumHeight
@@ -74,7 +139,9 @@ struct MusicVideoView: View {
                 MusicVideoCutEditorView(viewModel: viewModel, dataManager: dataManager)
               }
               musicSection
+                .id(Self.musicAnchor)
               sourceSection
+                .id(Self.sourceAnchor)
               MusicVideoTuningSections(viewModel: viewModel)
             }
             .frame(maxWidth: settingsColumnWidth)
@@ -86,58 +153,16 @@ struct MusicVideoView: View {
           .onChange(of: viewModel.plan != nil) { _, hasPlan in
             if hasPlan { withAnimation { proxy.scrollTo(Self.topAnchor, anchor: .top) } }
           }
+          // 素材・曲を選ぶ画面から戻ったときは、その欄を見せる。
+          .onAppear {
+            guard let anchor = returnAnchor else { return }
+            returnAnchor = nil
+            proxy.scrollTo(anchor, anchor: .top)
+          }
         }
 
         actionBar
       }
-    }
-    .background(CommandDeckBackground())
-    .navigationTitle("ミュージックビデオ")
-    // 設定画面と同じく、スイッチなどの「入」の色は青にする（内容側の既定は文字色の中立色）。
-    .tint(NeomorphicTheme.accent)
-    .overlay {
-      if isDropTargeted {
-        RoundedRectangle(cornerRadius: DS.cardCornerRadius, style: .continuous)
-          .strokeBorder(NeomorphicTheme.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-          .padding(8)
-          .allowsHitTesting(false)
-      }
-    }
-    .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleMusicDrop)
-    .onAppear { viewModel.attach(dataManager: dataManager) }
-    .onDisappear { viewModel.stopAllPlayback() }
-    .sheet(isPresented: $isShowingSourcePicker) {
-      MusicVideoSourcePickerSheet(viewModel: viewModel, dataManager: dataManager)
-    }
-    .sheet(isPresented: $isShowingMusicPicker) {
-      MusicVideoMusicPickerSheet(viewModel: viewModel)
-    }
-    .sheet(isPresented: $isShowingExportAlbumPicker) {
-      MusicVideoExportAlbumSheet(dataManager: dataManager, fileName: viewModel.suggestedFileName) { destination in
-        viewModel.exportToLibrary(dataManager: dataManager, destination: destination)
-      }
-    }
-    .alert(
-      "処理に失敗しました",
-      isPresented: Binding(
-        get: { viewModel.errorMessage != nil },
-        set: { if !$0 { viewModel.clearError() } }
-      )
-    ) {
-      Button("OK", role: .cancel) { viewModel.clearError() }
-    } message: {
-      Text(viewModel.errorMessage ?? "不明なエラーです．")
-    }
-    .alert(
-      "書き出しが完了しました",
-      isPresented: Binding(
-        get: { viewModel.resultMessage != nil },
-        set: { if !$0 { viewModel.clearResultMessage() } }
-      )
-    ) {
-      Button("OK", role: .cancel) { viewModel.clearResultMessage() }
-    } message: {
-      Text(viewModel.resultMessage ?? "")
     }
   }
 
@@ -265,7 +290,10 @@ struct MusicVideoView: View {
             if let url = viewModel.musicURL {
               MusicPreviewButton(preview: viewModel.preview, url: url) { viewModel.togglePreview(url) }
             }
-            Button("フォルダから…") { isShowingMusicPicker = true }
+            Button("フォルダから…") {
+              returnAnchor = Self.musicAnchor
+              isShowingMusicPicker = true
+            }
               .buttonStyle(.quiet)
               .help("曲を置いてあるフォルダから探して選びます")
               .accessibilityIdentifier("musicvideo.musicFolder")
@@ -365,7 +393,10 @@ struct MusicVideoView: View {
                 .buttonStyle(.quiet)
                 .help("アルバムと動画の選択をすべて外します")
             }
-            Button("選ぶ…") { isShowingSourcePicker = true }
+            Button("選ぶ…") {
+              returnAnchor = Self.sourceAnchor
+              isShowingSourcePicker = true
+            }
               .buttonStyle(.quiet)
               .accessibilityIdentifier("musicvideo.chooseSource")
           }

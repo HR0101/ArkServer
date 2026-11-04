@@ -63,6 +63,8 @@ nonisolated struct MusicVideoAlbumEntry: Identifiable, Equatable, Sendable {
   let count: Int
   let totalDuration: Double
   let latestImport: Date
+  /// 表紙に使う動画(アルバムの最初の動画)。動画が1本もなければ nil。
+  var coverVideoID: UUID? = nil
 
   /// 写真だけのアルバムを除いた一覧を作る。表示名(`Album.displayTitle`)がメインアクター上なので，こちらもそうする。
   @MainActor
@@ -74,11 +76,13 @@ nonisolated struct MusicVideoAlbumEntry: Identifiable, Equatable, Sendable {
         var count = 0
         var total = 0.0
         var latest = Date.distantPast
+        var cover: UUID?
         for id in album.videoIDs {
           guard let item = byID[id], item.mediaType == .video, !item.isInTrash else { continue }
           count += 1
           total += item.duration
           latest = max(latest, item.importDate)
+          if cover == nil { cover = item.id }
         }
         let components = album.name.components(separatedBy: "/")
         return MusicVideoAlbumEntry(
@@ -88,7 +92,8 @@ nonisolated struct MusicVideoAlbumEntry: Identifiable, Equatable, Sendable {
           parent: components.count > 1 ? components.dropLast().joined(separator: " / ") : "",
           count: count,
           totalDuration: total,
-          latestImport: latest
+          latestImport: latest,
+          coverVideoID: cover
         )
       }
   }
