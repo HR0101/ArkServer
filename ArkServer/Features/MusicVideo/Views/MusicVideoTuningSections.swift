@@ -62,6 +62,14 @@ struct MusicVideoTuningSections: View {
             width: 300
           )
         }
+        SettingsRow(title: "拍への合わせ込み", detail: hitSyncDetail) {
+          FlatSegmentedControl(
+            options: HitSync.allCases,
+            title: \.displayName,
+            selection: $viewModel.cutTuning.hitSync,
+            width: 240
+          )
+        }
         SettingsRow(title: "動画のばらけ具合", detail: varietyDetail) {
           Picker("動画のばらけ具合", selection: $viewModel.cutTuning.variety) {
             ForEach(VideoVariety.allCases, id: \.self) { Text($0.displayName).tag($0) }
@@ -122,6 +130,15 @@ struct MusicVideoTuningSections: View {
   private var motionDetail: String {
     var text = viewModel.cutTuning.motionMatching.summary
     if let match = viewModel.planStats?.motionMatch { text += "\nいまの動きの一致度: \(MusicVideoChangeSummary.percent(match))" }
+    return text
+  }
+
+  private var hitSyncDetail: String {
+    var text = viewModel.cutTuning.hitSync.summary
+    if let stats = viewModel.planStats {
+      if let hit = stats.hitAlignment { text += "\nいま: 強い拍のうち\(MusicVideoChangeSummary.percent(hit))で、映像の大きな動きが重なっています" }
+      if let correlation = stats.energyCorrelation { text += "\n盛り上がりと映像の動きの相関: \(String(format: "%.2f", correlation))" }
+    }
     return text
   }
 
@@ -262,6 +279,7 @@ struct MusicVideoResultSummary: View {
       "動画\(stats.usedVideoCount)/\(stats.poolVideoCount)本を使用"
     ]
     if let match = stats.motionMatch { parts.append("動きの一致\(MusicVideoChangeSummary.percent(match))") }
+    if let hit = stats.hitAlignment { parts.append("拍の一致\(MusicVideoChangeSummary.percent(hit))") }
     return parts.joined(separator: "・")
   }
 }

@@ -42,6 +42,38 @@ nonisolated enum MotionMatching: String, Codable, CaseIterable, Hashable, Sendab
   }
 }
 
+/// 曲の拍(強い拍・小節の頭・曲の変わり目)に、映像の大きな動き(動作の始まり・衝撃)を重ねる強さ。
+nonisolated enum HitSync: String, Codable, CaseIterable, Hashable, Sendable {
+  case off
+  case standard
+  case strong
+
+  var displayName: String {
+    switch self {
+    case .off: return "合わせない"
+    case .standard: return "標準"
+    case .strong: return "強い"
+    }
+  }
+
+  /// 拍と衝撃の一致を、採点でどれだけ重くみるか。
+  var weight: Double {
+    switch self {
+    case .off: return 0
+    case .standard: return 1.5
+    case .strong: return 3
+    }
+  }
+
+  var summary: String {
+    switch self {
+    case .off: return "拍の位置は気にせず、動きの強さだけで素材を選びます．"
+    case .standard: return "曲の強い拍に、映像の大きな動き（動き出し・衝撃）が重なる素材を、優先して選びます．"
+    case .strong: return "曲の強い拍・小節の頭・曲の変わり目に、映像の大きな動きを重ねることを最優先にします．素材が偏ることがあります．"
+    }
+  }
+}
+
 /// 同じ動画を、どれだけ避けるか(どれだけいろいろな動画を使うか)。
 nonisolated enum VideoVariety: String, Codable, CaseIterable, Hashable, Sendable {
   case wide
@@ -121,6 +153,8 @@ nonisolated struct MusicVideoCutTuning: Codable, Equatable, Sendable {
   /// これより長いカットは作らない(秒)。nil なら制限しない。
   var maximumCutDuration: Double?
   var motionMatching: MotionMatching = .standard
+  /// 曲の拍に、映像の大きな動きを重ねる強さ。
+  var hitSync: HitSync = .strong
   var variety: VideoVariety = .standard
   var alignment: CutAlignment = .bar
 
@@ -137,6 +171,24 @@ nonisolated struct MusicVideoCutTuning: Codable, Equatable, Sendable {
   mutating func setMaximum(_ value: Double?) {
     maximumCutDuration = value
     if let value, value < minimumCutDuration { minimumCutDuration = value }
+  }
+}
+
+extension MusicVideoCutTuning {
+  private enum CodingKeys: String, CodingKey {
+    case minimumCutDuration, maximumCutDuration, motionMatching, hitSync, variety, alignment
+  }
+
+  /// 項目が足りない古い保存データでも、読めた分は使い、残りは既定値にする。
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let defaults = MusicVideoCutTuning()
+    minimumCutDuration = try container.decodeIfPresent(Double.self, forKey: .minimumCutDuration) ?? defaults.minimumCutDuration
+    maximumCutDuration = try container.decodeIfPresent(Double.self, forKey: .maximumCutDuration)
+    motionMatching = try container.decodeIfPresent(MotionMatching.self, forKey: .motionMatching) ?? defaults.motionMatching
+    hitSync = try container.decodeIfPresent(HitSync.self, forKey: .hitSync) ?? defaults.hitSync
+    variety = try container.decodeIfPresent(VideoVariety.self, forKey: .variety) ?? defaults.variety
+    alignment = try container.decodeIfPresent(CutAlignment.self, forKey: .alignment) ?? defaults.alignment
   }
 }
 
