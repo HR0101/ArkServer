@@ -14,6 +14,10 @@ nonisolated struct MusicVideoPlanStats: Equatable, Sendable {
   var poolVideoCount: Int
   /// 映像の動きが、曲の盛り上がりにどれだけ合っているか(0〜1)。調べられないときは nil。
   var motionMatch: Double?
+  /// 曲の強い拍に、映像の「急に動いた瞬間」が重なっている割合(0〜1)。調べられないときは nil。
+  var hitAlignment: Double?
+  /// 曲の盛り上がりと映像の動きの強さの相関(-1〜1)。調べられないときは nil。
+  var energyCorrelation: Double?
 
   init(plan: CutPlan, pool: [SourceMotionProfile], analysis: MusicAnalysis?) {
     let durations = plan.cuts.map(\.duration)
@@ -24,6 +28,11 @@ nonisolated struct MusicVideoPlanStats: Equatable, Sendable {
     usedVideoCount = Set(plan.cuts.map(\.videoID)).count
     poolVideoCount = Set(pool.map(\.videoID)).count
     motionMatch = analysis.flatMap { Self.motionMatch(plan: plan, pool: pool, analysis: $0) }
+    if let analysis {
+      let sync = MusicVideoSyncMetrics(plan: plan, analysis: analysis, pool: pool)
+      hitAlignment = sync.hitAlignment
+      energyCorrelation = sync.energyCorrelation
+    }
   }
 
   /// 各カットの素材の動きと、狙った動きとの差の平均を、1 から引いた値。
@@ -76,6 +85,10 @@ nonisolated struct MusicVideoChangeSummary: Equatable, Sendable {
     if let oldMatch = before.motionMatch, let newMatch = after.motionMatch,
        abs(oldMatch - newMatch) >= 0.01 {
       parts.append("動きの一致 \(Self.percent(oldMatch)) → \(Self.percent(newMatch))")
+    }
+    if let oldHit = before.hitAlignment, let newHit = after.hitAlignment,
+       abs(oldHit - newHit) >= 0.01 {
+      parts.append("拍の一致 \(Self.percent(oldHit)) → \(Self.percent(newHit))")
     }
     if parts.isEmpty { return "「\(title)」を変えました．数値の上では大きな違いはありません．" }
     return "「\(title)」を変えました：" + parts.joined(separator: "・")

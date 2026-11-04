@@ -660,6 +660,7 @@ final class MusicVideoViewModel: ObservableObject {
     if old.minimumCutDuration != new.minimumCutDuration { return "最短のカット長" }
     if old.maximumCutDuration != new.maximumCutDuration { return "最長のカット長" }
     if old.motionMatching != new.motionMatching { return "動きの合わせ方" }
+    if old.hitSync != new.hitSync { return "拍への合わせ込み" }
     if old.variety != new.variety { return "動画のばらけ具合" }
     return "切り替えのタイミング"
   }

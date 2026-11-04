@@ -346,6 +346,28 @@ struct MusicVideoPlanStatsTests {
     )
     #expect(same.text.contains("大きな違いはありません"))
   }
+
+  @Test
+  func changeSummaryReportsTheBeatAlignment() {
+    func stats(hit: Double?) -> MusicVideoPlanStats {
+      var result = MusicVideoPlanStats(
+        plan: CutPlan(cuts: [plannedCut(UUID(), from: 0, at: 0, length: 1)], duration: 1),
+        pool: [],
+        analysis: nil
+      )
+      result.hitAlignment = hit
+      return result
+    }
+
+    let improved = MusicVideoChangeSummary(title: "拍への合わせ込み", before: stats(hit: 0.44), after: stats(hit: 1.0))
+    #expect(improved.text == "「拍への合わせ込み」を変えました：拍の一致 44％ → 100％")
+
+    // 片方でも調べられなければ、比べない。小さな差も出さない。
+    let unknown = MusicVideoChangeSummary(title: "拍への合わせ込み", before: stats(hit: nil), after: stats(hit: 1.0))
+    #expect(unknown.text.contains("大きな違いはありません"))
+    let tiny = MusicVideoChangeSummary(title: "拍への合わせ込み", before: stats(hit: 0.800), after: stats(hit: 0.805))
+    #expect(tiny.text.contains("大きな違いはありません"))
+  }
 }
 
 // MARK: - 保存
