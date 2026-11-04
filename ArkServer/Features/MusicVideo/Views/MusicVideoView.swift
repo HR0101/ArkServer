@@ -7,8 +7,8 @@ import UniformTypeIdentifiers
 
 /// 曲を選ぶと、ライブラリの動画から曲に合わせた映像を自動で作る画面。
 ///
-/// 設定画面のように、中央の1列に「セクション名 + 行をまとめた面」を縦に並べる。
-/// 結果ができたら、プレビューとカットの編集を一番上に出す。実行ボタンは下に固定して常に見せる。
+/// プレビューと操作パネルを並べ，作成に必要な入力と細かな調整を分ける。
+/// 狭い窓では上下に積み，実行ボタンは下に固定して常に見せる。
 struct MusicVideoView: View {
   @ObservedObject var viewModel: MusicVideoViewModel
   @ObservedObject var dataManager: LibraryViewModel
@@ -19,6 +19,7 @@ struct MusicVideoView: View {
   @State private var returnAnchor: String?
   @State private var isShowingMusicPicker = false
   @State private var isShowingExportAlbumPicker = false
+  @State private var inspectorPane: MusicVideoInspectorPane = .inputs
   /// プレビューを全画面で開く。
   @State private var fullScreen = MusicVideoFullScreenPresenter()
   /// プレビューの高さが、窓の高さに占める割合。境目をドラッグして変える。次回も保つ。
@@ -38,6 +39,9 @@ struct MusicVideoView: View {
   private static let stackedPreviewExtras: CGFloat = 150
   /// プレビューをスクロールの中に置くとき(窓が低いとき)の中身の高さ。
   private static let inlinePreviewContentHeight: CGFloat = 480
+  private static let workspaceMinimumWidth: CGFloat = 1_040
+  private static let inspectorWidth: CGFloat = 400
+  private static let workspaceMaximumWidth: CGFloat = 1_440
 
   var body: some View {
     Group {
@@ -102,68 +106,179 @@ struct MusicVideoView: View {
   /// ミュージックビデオの本体(プレビュー・曲・素材・調整項目)。
   private var mainContent: some View {
     GeometryReader { geometry in
-      // 調整項目を変えたときの変化をその場で見られるよう、窓が十分に高ければ、プレビューを上に固定する。
-      let pinsPreview = viewModel.plan != nil && geometry.size.height >= Self.pinnedPreviewMinimumHeight
-      let pinnedHeight = pinnedRegionHeight(windowHeight: geometry.size.height)
       VStack(spacing: 0) {
-        if pinsPreview {
-          VStack(spacing: 0) {
-            previewSection(contentHeight: pinnedHeight - Self.pinnedPreviewChrome, showsCaption: false)
-              .frame(maxWidth: settingsColumnWidth)
-              .frame(maxWidth: .infinity)
-              .padding(.horizontal, 24)
-              .padding(.top, 14)
-              .padding(.bottom, 8)
-              .frame(height: pinnedHeight - 10, alignment: .top)
-              .clipped()
-            previewResizeHandle(windowHeight: geometry.size.height)
-          }
-          .background(NeomorphicTheme.canvas)
-        }
+        workspaceHeader
+        Divider().overlay(NeomorphicTheme.separator)
 
-        ScrollViewReader { proxy in
-          ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-              // 見出しは列の左端にそろえる（LibraryPageHeader は左右に24の余白を持つ）。
-              LibraryPageHeader(
-                title: "ミュージックビデオ",
-                subtitle: "曲を選ぶと，ライブラリの動画を曲の盛り上がりに合わせて自動で編集します"
-              )
-              .padding(.horizontal, -24)
-              .id(Self.topAnchor)
-
-              if viewModel.plan != nil {
-                if !pinsPreview {
-                  previewSection(contentHeight: Self.inlinePreviewContentHeight, showsCaption: true)
+        if geometry.size.width >= Self.workspaceMinimumWidth {
+          HStack(alignment: .top, spacing: 0) {
+            ScrollView {
+              VStack(alignment: .leading, spacing: 20) {
+                if viewModel.plan != nil {
+                  previewSection(contentHeight: max(320, geometry.size.height - 240), showsCaption: true)
+                  cutEditor
+                } else {
+                  previewPlaceholder
+                    .frame(minHeight: max(360, geometry.size.height - 240))
                 }
-                MusicVideoCutEditorView(viewModel: viewModel, dataManager: dataManager)
               }
-              musicSection
-                .id(Self.musicAnchor)
-              sourceSection
-                .id(Self.sourceAnchor)
-              MusicVideoTuningSections(viewModel: viewModel)
+              .padding(24)
             }
-            .frame(maxWidth: settingsColumnWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider().overlay(NeomorphicTheme.separator)
+            inspector(includesPreview: false)
+              .frame(width: Self.inspectorWidth)
           }
-          // 映像ができたら、一番上のプレビューが見えるようにする。
-          .onChange(of: viewModel.plan != nil) { _, hasPlan in
-            if hasPlan { withAnimation { proxy.scrollTo(Self.topAnchor, anchor: .top) } }
-          }
-          // 素材・曲を選ぶ画面から戻ったときは、その欄を見せる。
-          .onAppear {
-            guard let anchor = returnAnchor else { return }
-            returnAnchor = nil
-            proxy.scrollTo(anchor, anchor: .top)
-          }
+          .frame(maxWidth: Self.workspaceMaximumWidth)
+          .frame(maxWidth: .infinity)
+        } else {
+          compactWorkspace(height: max(0, geometry.size.height - 140))
         }
 
         actionBar
       }
     }
+  }
+
+  private var workspaceHeader: some View {
+    HStack(alignment: .center, spacing: 16) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("ミュージックビデオ")
+          .font(.appTitle)
+          .foregroundStyle(NeomorphicTheme.ink)
+        Text("曲と素材を選んで，映像をつくる")
+          .font(.appCaption)
+          .foregroundStyle(NeomorphicTheme.muted)
+      }
+      Spacer(minLength: 8)
+      VStack(alignment: .trailing, spacing: 4) {
+        Text(viewModel.renderPreset.displayName)
+          .font(.appCaptionStrong)
+        if let duration = viewModel.targetDuration {
+          Text(formatTime(duration))
+            .font(.appMonoCaption)
+        }
+      }
+      .foregroundStyle(NeomorphicTheme.muted)
+    }
+    .padding(.horizontal, 24)
+    .padding(.vertical, 16)
+  }
+
+  /// 高さのある窓ではプレビューを固定し，境目のドラッグによるサイズ変更も残す。
+  private func compactWorkspace(height: CGFloat) -> some View {
+    let pinsPreview = viewModel.plan != nil && height >= Self.pinnedPreviewMinimumHeight
+    let pinnedHeight = pinnedRegionHeight(windowHeight: height)
+    return VStack(spacing: 0) {
+      if pinsPreview {
+        VStack(spacing: 0) {
+          previewSection(contentHeight: pinnedHeight - Self.pinnedPreviewChrome, showsCaption: false)
+            .frame(maxWidth: settingsColumnWidth)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+            .frame(height: pinnedHeight - 10, alignment: .top)
+            .clipped()
+          previewResizeHandle(windowHeight: height)
+        }
+      }
+      inspector(includesPreview: !pinsPreview, showsCutEditor: true)
+    }
+  }
+
+  private func inspector(includesPreview: Bool, showsCutEditor: Bool = false) -> some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 8) {
+        ForEach(MusicVideoInspectorPane.allCases) { pane in
+          MusicVideoChoiceButton(title: pane.rawValue, isSelected: inspectorPane == pane) {
+            inspectorPane = pane
+          }
+          .accessibilityIdentifier("musicvideo.pane.\(pane.id)")
+        }
+      }
+      .frame(maxWidth: settingsColumnWidth)
+      .padding(16)
+
+      ScrollViewReader { proxy in
+        ScrollView {
+          VStack(alignment: .leading, spacing: 24) {
+            if includesPreview, viewModel.plan != nil {
+              previewSection(contentHeight: Self.inlinePreviewContentHeight, showsCaption: true)
+                .id(Self.topAnchor)
+            }
+            if viewModel.plan != nil, showsCutEditor {
+              cutEditor
+            }
+            if inspectorPane == .inputs {
+              musicSection.id(Self.musicAnchor)
+              sourceSection.id(Self.sourceAnchor)
+            } else {
+              MusicVideoTuningSections(viewModel: viewModel, pane: inspectorPane)
+            }
+          }
+          .frame(maxWidth: settingsColumnWidth)
+          .frame(maxWidth: .infinity, alignment: .top)
+          .padding(20)
+          .padding(.bottom, 12)
+        }
+        .id(inspectorPane)
+        .onAppear {
+          guard let anchor = returnAnchor else { return }
+          returnAnchor = nil
+          proxy.scrollTo(anchor, anchor: .top)
+        }
+        .onChange(of: viewModel.plan != nil) { _, hasPlan in
+          if hasPlan, includesPreview {
+            proxy.scrollTo(Self.topAnchor, anchor: .top)
+          }
+        }
+      }
+    }
+  }
+
+  private var cutEditor: some View {
+    MusicVideoFoldout(
+      title: "カットの編集",
+      summary: viewModel.selectedCutIndex.map { "カット \($0 + 1)" } ?? "差し替え・履歴",
+      selectedCutIndex: viewModel.selectedCutIndex
+    ) {
+      MusicVideoCutEditorView(viewModel: viewModel, dataManager: dataManager)
+    }
+  }
+
+  private var previewPlaceholder: some View {
+    VStack(spacing: 24) {
+      Spacer(minLength: 24)
+      Image(systemName: "play.rectangle")
+        .font(.system(size: 48, weight: .ultraLight))
+        .foregroundStyle(NeomorphicTheme.muted)
+        .accessibilityHidden(true)
+      VStack(spacing: 8) {
+        Text("ここで仕上がりを確認")
+          .font(.appHeadline)
+          .foregroundStyle(NeomorphicTheme.ink)
+        Text("曲と素材を選んで「映像を作る」を押してください")
+          .font(.appCaption)
+          .foregroundStyle(NeomorphicTheme.muted)
+          .multilineTextAlignment(.center)
+      }
+      Spacer(minLength: 24)
+      HStack(spacing: 16) {
+        Label(viewModel.musicTitle ?? "曲を選択", systemImage: viewModel.musicURL == nil ? "circle" : "checkmark.circle")
+          .lineLimit(1)
+          .truncationMode(.middle)
+        Spacer(minLength: 0)
+        Text("素材 \(viewModel.candidateCount.formatted())本")
+          .monospacedDigit()
+          .fixedSize()
+      }
+      .font(.appCaption)
+      .foregroundStyle(NeomorphicTheme.muted)
+    }
+    .padding(24)
+    .frame(maxWidth: .infinity)
+    .background(GlassCardSurface())
   }
 
   // MARK: - プレビュー
@@ -282,14 +397,33 @@ struct MusicVideoView: View {
   // MARK: - 曲
 
   private var musicSection: some View {
-    SettingsSection(title: "曲") {
-      SettingsGroup {
-        SettingsRow(title: viewModel.musicTitle ?? "曲を選んでください", detail: musicDetail) {
-          HStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: 16) {
+      MusicVideoField(title: "使う曲", detail: musicDetail) {
+        VStack(alignment: .leading, spacing: 16) {
+          HStack(spacing: 12) {
+            Image(systemName: "music.note")
+              .font(.system(size: 20, weight: .light))
+              .foregroundStyle(NeomorphicTheme.muted)
+              .frame(width: 28)
+            VStack(alignment: .leading, spacing: 4) {
+              Text(viewModel.musicTitle ?? "曲を選んでください")
+                .font(.appBodyStrong)
+                .foregroundStyle(NeomorphicTheme.ink)
+                .lineLimit(2)
+                .truncationMode(.middle)
+              if let analysis = viewModel.fullAnalysis {
+                Text("\(formatTime(analysis.duration)) · \(Int(analysis.tempo.rounded())) BPM · 拍 \(analysis.beats.count)個")
+                  .font(.appMicro.monospacedDigit())
+                  .foregroundStyle(NeomorphicTheme.muted)
+              }
+            }
+            Spacer(minLength: 0)
             if viewModel.phase == .analyzingMusic { ProgressView().controlSize(.small) }
             if let url = viewModel.musicURL {
               MusicPreviewButton(preview: viewModel.preview, url: url) { viewModel.togglePreview(url) }
             }
+          }
+          HStack(spacing: 8) {
             Button("フォルダから…") {
               returnAnchor = Self.musicAnchor
               isShowingMusicPicker = true
@@ -303,25 +437,26 @@ struct MusicVideoView: View {
               .accessibilityIdentifier("musicvideo.musicFile")
             if !viewModel.recentMusicURLs.isEmpty { recentMenu }
           }
-          .disabled(viewModel.isWorking)
         }
-        if viewModel.musicURL == nil, let last = viewModel.lastMusicURL {
-          SettingsRow(title: "前回の曲", detail: last.deletingPathExtension().lastPathComponent) {
-            HStack(spacing: 8) {
-              MusicPreviewButton(preview: viewModel.preview, url: last) { viewModel.togglePreview(last) }
-              Button("開く") { viewModel.chooseMusic(last) }
-                .buttonStyle(.quiet)
-                .disabled(viewModel.isWorking)
-                .accessibilityIdentifier("musicvideo.openLastMusic")
-            }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GlassCardSurface())
+        .disabled(viewModel.isWorking)
+      }
+
+      if viewModel.musicURL == nil, let last = viewModel.lastMusicURL {
+        MusicVideoField(title: "前回の曲", detail: last.deletingPathExtension().lastPathComponent) {
+          HStack(spacing: 8) {
+            MusicPreviewButton(preview: viewModel.preview, url: last) { viewModel.togglePreview(last) }
+            Button("開く") { viewModel.chooseMusic(last) }
+              .buttonStyle(.quiet)
+              .disabled(viewModel.isWorking)
+              .accessibilityIdentifier("musicvideo.openLastMusic")
           }
         }
-        if let analysis = viewModel.fullAnalysis {
-          SettingsRow(title: "テンポと拍") {
-            Text("\(formatTime(analysis.duration))・\(Int(analysis.tempo.rounded())) BPM・拍 \(analysis.beats.count)個")
-              .font(.appBody.monospacedDigit())
-              .foregroundStyle(NeomorphicTheme.muted)
-          }
+      }
+      if viewModel.fullAnalysis != nil {
+        MusicVideoFoldout(title: "曲の使う範囲", summary: viewModel.musicRange == nil ? "曲全体" : (viewModel.targetDuration.map(formatTime) ?? "")) {
           MusicRangeControl(viewModel: viewModel)
         }
       }
@@ -381,40 +516,49 @@ struct MusicVideoView: View {
   }
 
   private var sourceSection: some View {
-    SettingsSection(title: "素材") {
-      SettingsGroup {
-        SettingsRow(
-          title: viewModel.candidateCount == 0 ? "素材がまだ選ばれていません" : "使える動画 \(viewModel.candidateCount.formatted())本",
-          detail: sourceDetail
-        ) {
+    VStack(alignment: .leading, spacing: 16) {
+      MusicVideoField(title: "素材の動画") {
+        VStack(alignment: .leading, spacing: 16) {
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(viewModel.candidateCount.formatted())
+              .font(.system(size: 32, weight: .medium, design: .monospaced))
+              .foregroundStyle(NeomorphicTheme.ink)
+            Text("本の動画")
+              .font(.appCaption)
+              .foregroundStyle(NeomorphicTheme.muted)
+            Spacer(minLength: 0)
+            Button("選ぶ…") {
+              returnAnchor = Self.sourceAnchor
+              isShowingSourcePicker = true
+            }
+            .buttonStyle(.quiet)
+            .accessibilityIdentifier("musicvideo.chooseSource")
+          }
+          Text(sourceDetail ?? "アルバムや動画を選んでください")
+            .font(.appCaption)
+            .foregroundStyle(NeomorphicTheme.muted)
+            .fixedSize(horizontal: false, vertical: true)
           HStack(spacing: 8) {
+            Toggle("お気に入りを含める", isOn: $viewModel.includeFavorites)
+              .toggleStyle(MusicVideoCheckStyle())
+            Spacer(minLength: 0)
             if !(viewModel.selectedAlbumIDs.isEmpty && viewModel.selectedVideoIDs.isEmpty) {
               Button("解除") { viewModel.clearSourceSelection() }
                 .buttonStyle(.quiet)
                 .help("アルバムと動画の選択をすべて外します")
             }
-            Button("選ぶ…") {
-              returnAnchor = Self.sourceAnchor
-              isShowingSourcePicker = true
-            }
-              .buttonStyle(.quiet)
-              .accessibilityIdentifier("musicvideo.chooseSource")
           }
-          .disabled(viewModel.isWorking)
         }
-        SettingsRow(title: "お気に入りを含める", detail: "お気に入りにした動画も素材に加えます．") {
-          SettingsSwitch(title: "お気に入りを含める", isOn: $viewModel.includeFavorites)
-            .disabled(viewModel.isWorking)
+        .padding(16)
+        .background(GlassCardSurface())
+        .disabled(viewModel.isWorking)
+      }
+      MusicVideoFoldout(title: "素材の解析本数", summary: "最大\(viewModel.sourceLimit)本") {
+        MusicVideoField(title: "解析に使う動画の本数", detail: sourceLimitDetail) {
+          MusicVideoChoices(options: MusicVideoSourceLimit.choices, title: { "\($0)本" }, selection: $viewModel.sourceLimit)
+            .accessibilityIdentifier("musicvideo.sourceLimit")
         }
-        SettingsRow(title: "解析に使う動画の本数", detail: sourceLimitDetail) {
-          Picker("解析に使う動画の本数", selection: $viewModel.sourceLimit) {
-            ForEach(MusicVideoSourceLimit.choices, id: \.self) { Text("\($0)本").tag($0) }
-          }
-          .labelsHidden()
-          .fixedSize()
-          .disabled(viewModel.isWorking)
-          .accessibilityIdentifier("musicvideo.sourceLimit")
-        }
+        .disabled(viewModel.isWorking)
       }
     }
   }
@@ -455,25 +599,42 @@ struct MusicVideoView: View {
   private var actionBar: some View {
     VStack(spacing: 0) {
       Divider().overlay(NeomorphicTheme.separator)
-      HStack(spacing: 12) {
-        statusView
-          .frame(maxWidth: .infinity, alignment: .leading)
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 24) {
+          statusView
+            .frame(maxWidth: .infinity, alignment: .leading)
+          actionButtons
+        }
+        VStack(alignment: .leading, spacing: 12) {
+          statusView
+          HStack {
+            Spacer(minLength: 0)
+            actionButtons
+          }
+        }
+      }
+      .frame(maxWidth: Self.workspaceMaximumWidth)
+      .frame(maxWidth: .infinity)
+      .padding(.horizontal, 24)
+      .padding(.vertical, 16)
+    }
+    .background(NeomorphicTheme.canvas)
+  }
 
+  private var actionButtons: some View {
+    HStack(spacing: 8) {
         if viewModel.isWorking {
           Button("中止") { viewModel.cancelWork() }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
+            .buttonStyle(MusicVideoActionStyle())
             .accessibilityIdentifier("musicvideo.cancel")
         } else {
           if viewModel.plan != nil {
             Button("ファイルに保存…") { saveToFile() }
-              .buttonStyle(.bordered)
-              .controlSize(.large)
+              .buttonStyle(MusicVideoActionStyle())
               .disabled(!viewModel.canExport)
               .accessibilityIdentifier("musicvideo.saveFile")
             Button("ライブラリに追加…") { isShowingExportAlbumPicker = true }
-              .buttonStyle(.bordered)
-              .controlSize(.large)
+              .buttonStyle(MusicVideoActionStyle())
               .disabled(!viewModel.canExport)
               .help("追加するアルバムを選んで，書き出してライブラリに追加します")
               .accessibilityIdentifier("musicvideo.exportLibrary")
@@ -481,19 +642,13 @@ struct MusicVideoView: View {
           Button(viewModel.plan == nil ? "映像を作る" : "作り直す") {
             viewModel.generate(dataManager: dataManager)
           }
-          .buttonStyle(.borderedProminent)
-          .controlSize(.large)
+          .buttonStyle(MusicVideoActionStyle(isPrimary: true))
           .disabled(!viewModel.canGenerate)
           .help(viewModel.plan == nil ? "曲に合わせて映像を作ります" : "別のカット割りで作り直します")
           .accessibilityIdentifier("musicvideo.generate")
         }
-      }
-      .frame(maxWidth: settingsColumnWidth)
-      .frame(maxWidth: .infinity)
-      .padding(.horizontal, 24)
-      .padding(.vertical, 14)
     }
-    .background(NeomorphicTheme.canvas)
+    .fixedSize(horizontal: true, vertical: false)
   }
 
   @ViewBuilder

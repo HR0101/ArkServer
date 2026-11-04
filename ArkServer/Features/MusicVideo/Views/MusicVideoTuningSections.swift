@@ -2,90 +2,95 @@
 
 import SwiftUI
 
+/// 表示する操作のまとまり。映像を作るための設定値は持たない。
+enum MusicVideoInspectorPane: String, CaseIterable, Identifiable {
+  case inputs = "曲と素材"
+  case rhythm = "リズム"
+  case finish = "仕上げ"
+
+  var id: String { rawValue }
+}
+
 /// 「カット割り」「見た目と音」「書き出し」の調整項目。
 ///
 /// 映像ができているときは、項目を変えると、すぐにプレビューとタイムラインが変わる(乱数の種は変えないので、
 /// 変えた項目だけの違いが出る)。各項目の説明には、いまの曲での秒数や、いまのカット割りの結果を数値で添える。
 struct MusicVideoTuningSections: View {
   @ObservedObject var viewModel: MusicVideoViewModel
+  let pane: MusicVideoInspectorPane
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 28) {
-      cutSection
-      lookSection
-      exportSection
+    VStack(alignment: .leading, spacing: 24) {
+      switch pane {
+      case .inputs:
+        EmptyView()
+      case .rhythm:
+        cutSection
+      case .finish:
+        lookSection
+        exportSection
+      }
     }
+    .disabled(viewModel.isWorking)
   }
 
   // MARK: - カット割り
 
   private var cutSection: some View {
-    SettingsSection(
-      title: "カット割り",
-      footer: viewModel.plan == nil
-        ? "映像を作ると、ここを変えるたびにプレビューが変わります．"
-        : "変えるとすぐに映像へ反映されます．気に入らなければ「元に戻す」で戻せます．"
-    ) {
-      SettingsGroup {
-        SettingsRow(title: "カットの細かさ", detail: cutStyleDetail) {
-          FlatSegmentedControl(
-            options: MusicVideoCutStyle.allCases,
-            title: \.displayName,
-            selection: $viewModel.cutStyle,
-            width: 210
-          )
-        }
-        SettingsRow(title: "最短のカット", detail: minimumDetail) {
-          Picker("最短のカット", selection: minimumBinding) {
-            ForEach(MusicVideoCutTuning.minimumChoices, id: \.self) { value in
-              Text(Self.seconds(value)).tag(value)
-            }
+    VStack(alignment: .leading, spacing: 24) {
+      MusicVideoField(title: "カットの細かさ", detail: cutStyleDetail) {
+        HStack(spacing: 8) {
+          ForEach(MusicVideoCutStyle.allCases, id: \.self) { style in
+            MusicVideoChoiceButton(
+              title: style.displayName,
+              isSelected: viewModel.cutStyle == style,
+              rhythmMarks: rhythmMarks(for: style)
+            ) { viewModel.cutStyle = style }
           }
-          .labelsHidden()
-          .fixedSize()
-        }
-        SettingsRow(title: "最長のカット", detail: maximumDetail) {
-          Picker("最長のカット", selection: maximumBinding) {
-            Text("制限なし").tag(Double?.none)
-            ForEach(MusicVideoCutTuning.maximumChoices, id: \.self) { value in
-              Text(Self.seconds(value)).tag(Double?.some(value))
-            }
-          }
-          .labelsHidden()
-          .fixedSize()
-        }
-        SettingsRow(title: "動きの合わせ方", detail: motionDetail) {
-          FlatSegmentedControl(
-            options: MotionMatching.allCases,
-            title: \.displayName,
-            selection: $viewModel.cutTuning.motionMatching,
-            width: 300
-          )
-        }
-        SettingsRow(title: "拍への合わせ込み", detail: hitSyncDetail) {
-          FlatSegmentedControl(
-            options: HitSync.allCases,
-            title: \.displayName,
-            selection: $viewModel.cutTuning.hitSync,
-            width: 240
-          )
-        }
-        SettingsRow(title: "動画のばらけ具合", detail: varietyDetail) {
-          Picker("動画のばらけ具合", selection: $viewModel.cutTuning.variety) {
-            ForEach(VideoVariety.allCases, id: \.self) { Text($0.displayName).tag($0) }
-          }
-          .labelsHidden()
-          .fixedSize()
-        }
-        SettingsRow(title: "切り替えのタイミング", detail: viewModel.cutTuning.alignment.summary) {
-          Picker("切り替えのタイミング", selection: $viewModel.cutTuning.alignment) {
-            ForEach(CutAlignment.allCases, id: \.self) { Text($0.displayName).tag($0) }
-          }
-          .labelsHidden()
-          .fixedSize()
         }
       }
-      .disabled(viewModel.isWorking)
+
+      MusicVideoField(title: "動きの合わせ方", detail: motionDetail) {
+        MusicVideoChoices(options: MotionMatching.allCases, title: \.displayName, selection: $viewModel.cutTuning.motionMatching)
+      }
+      MusicVideoField(title: "拍への合わせ込み", detail: hitSyncDetail) {
+        MusicVideoChoices(options: HitSync.allCases, title: \.displayName, selection: $viewModel.cutTuning.hitSync)
+      }
+      MusicVideoField(title: "動画のばらけ具合", detail: varietyDetail) {
+        MusicVideoChoices(options: VideoVariety.allCases, title: \.displayName, selection: $viewModel.cutTuning.variety, minimumWidth: 100)
+      }
+
+      MusicVideoFoldout(title: "カットの長さとタイミング", summary: cutLengthSummary) {
+        MusicVideoField(title: "最短のカット", detail: minimumDetail) {
+          MusicVideoChoices(options: MusicVideoCutTuning.minimumChoices, title: Self.seconds, selection: minimumBinding)
+        }
+        MusicVideoField(title: "最長のカット", detail: maximumDetail) {
+          MusicVideoChoices(
+            options: [Double?.none] + MusicVideoCutTuning.maximumChoices.map { Double?.some($0) },
+            title: { $0.map(Self.seconds) ?? "制限なし" },
+            selection: maximumBinding
+          )
+        }
+        MusicVideoField(title: "切り替えのタイミング", detail: viewModel.cutTuning.alignment.summary) {
+          MusicVideoChoices(options: CutAlignment.allCases, title: \.displayName, selection: $viewModel.cutTuning.alignment, minimumWidth: 120)
+        }
+      }
+
+      Text(viewModel.plan == nil ? "映像を作ったあとも，ここで調整できます" : "変更はプレビューへ反映されます．カットの編集から元に戻せます")
+        .font(.appCaption)
+        .foregroundStyle(NeomorphicTheme.muted)
+    }
+  }
+
+  private var cutLengthSummary: String {
+    "\(Self.seconds(viewModel.cutTuning.minimumCutDuration))〜\(viewModel.cutTuning.maximumCutDuration.map(Self.seconds) ?? "上限なし")"
+  }
+
+  private func rhythmMarks(for style: MusicVideoCutStyle) -> Int {
+    switch style {
+    case .relaxed: return 3
+    case .standard: return 5
+    case .energetic: return 8
     }
   }
 
@@ -153,44 +158,29 @@ struct MusicVideoTuningSections: View {
   // MARK: - 見た目と音
 
   private var lookSection: some View {
-    SettingsSection(title: "見た目と音") {
-      SettingsGroup {
-        SettingsRow(title: "画面サイズ", detail: renderDetail) {
-          Picker("画面サイズ", selection: $viewModel.renderPreset) {
-            ForEach(MusicVideoRenderPreset.allCases, id: \.self) { preset in
-              Text(preset.displayName).tag(preset)
-            }
+    VStack(alignment: .leading, spacing: 24) {
+      MusicVideoField(title: "画面サイズ", detail: renderDetail) {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+          ForEach(MusicVideoRenderPreset.allCases, id: \.self) { preset in
+            MusicVideoChoiceButton(
+              title: preset.displayName,
+              isSelected: viewModel.renderPreset == preset,
+              frameAspect: preset.isPortrait ? 9.0 / 16 : 16.0 / 9
+            ) { viewModel.renderPreset = preset }
           }
-          .labelsHidden()
-          .fixedSize()
-        }
-        SettingsRow(title: "画面の合わせ方", detail: viewModel.lookTuning.fitMode.summary) {
-          FlatSegmentedControl(
-            options: MusicVideoFitMode.allCases,
-            title: \.displayName,
-            selection: $viewModel.lookTuning.fitMode,
-            width: 230
-          )
-        }
-        SettingsRow(title: "切り替え効果", detail: viewModel.lookTuning.transition.summary) {
-          FlatSegmentedControl(
-            options: MusicVideoTransition.allCases,
-            title: \.displayName,
-            selection: $viewModel.lookTuning.transition,
-            width: 300
-          )
-        }
-        SettingsRow(title: "最初と最後のフェード", detail: fadeDetail) {
-          Picker("最初と最後のフェード", selection: $viewModel.lookTuning.fadeSeconds) {
-            ForEach(MusicVideoLookTuning.fadeChoices, id: \.self) { value in
-              Text(value == 0 ? "なし" : Self.seconds(value)).tag(value)
-            }
-          }
-          .labelsHidden()
-          .fixedSize()
         }
       }
-      .disabled(viewModel.isWorking)
+      MusicVideoField(title: "画面の合わせ方", detail: viewModel.lookTuning.fitMode.summary) {
+        MusicVideoChoices(options: MusicVideoFitMode.allCases, title: \.displayName, selection: $viewModel.lookTuning.fitMode, minimumWidth: 120)
+      }
+      MusicVideoField(title: "切り替え効果", detail: viewModel.lookTuning.transition.summary) {
+        MusicVideoChoices(options: MusicVideoTransition.allCases, title: \.displayName, selection: $viewModel.lookTuning.transition, minimumWidth: 100)
+      }
+      MusicVideoFoldout(title: "映像と音のフェード", summary: viewModel.lookTuning.fadeSeconds == 0 ? "なし" : Self.seconds(viewModel.lookTuning.fadeSeconds)) {
+        MusicVideoField(title: "最初と最後のフェード", detail: fadeDetail) {
+          MusicVideoChoices(options: MusicVideoLookTuning.fadeChoices, title: { $0 == 0 ? "なし" : Self.seconds($0) }, selection: $viewModel.lookTuning.fadeSeconds)
+        }
+      }
     }
   }
 
@@ -212,19 +202,8 @@ struct MusicVideoTuningSections: View {
   // MARK: - 書き出し
 
   private var exportSection: some View {
-    SettingsSection(title: "書き出し") {
-      SettingsGroup {
-        SettingsRow(title: "書き出しの画質", detail: exportSizeText) {
-          Picker("書き出しの画質", selection: $viewModel.exportQuality) {
-            ForEach(MusicVideoExportQuality.allCases, id: \.self) { quality in
-              Text(quality.displayName).tag(quality)
-            }
-          }
-          .labelsHidden()
-          .fixedSize()
-        }
-      }
-      .disabled(viewModel.isWorking)
+    MusicVideoField(title: "書き出しの画質", detail: exportSizeText) {
+      MusicVideoChoices(options: MusicVideoExportQuality.allCases, title: \.displayName, selection: $viewModel.exportQuality)
     }
   }
 
@@ -241,6 +220,235 @@ struct MusicVideoTuningSections: View {
 
   static func seconds(_ value: Double) -> String {
     MusicVideoChangeSummary.seconds(value)
+  }
+}
+
+// MARK: - ミュージックビデオ画面の操作部品
+
+/// 項目名・選択肢・説明の順に並べ，狭いパネルでも操作の幅を確保する。
+struct MusicVideoField<Content: View>: View {
+  let title: String
+  var detail: String? = nil
+  @ViewBuilder var content: Content
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(title)
+        .font(.appBodyStrong)
+        .foregroundStyle(NeomorphicTheme.ink)
+      content
+      if let detail {
+        Text(detail)
+          .font(.appCaption)
+          .foregroundStyle(NeomorphicTheme.muted)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel(title)
+  }
+}
+
+/// 選択肢は幅が足りないときに折り返す。値の変更は既存のBindingへそのまま渡す。
+struct MusicVideoChoices<Option: Hashable>: View {
+  let options: [Option]
+  let title: (Option) -> String
+  @Binding var selection: Option
+  var minimumWidth: CGFloat = 64
+
+  var body: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 8) {
+        ForEach(options, id: \.self) { option in
+          optionButton(option)
+            .frame(minWidth: minimumWidth)
+        }
+      }
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: minimumWidth), spacing: 8)], spacing: 8) {
+        ForEach(options, id: \.self) { option in
+          optionButton(option)
+        }
+      }
+    }
+  }
+
+  private func optionButton(_ option: Option) -> some View {
+    MusicVideoChoiceButton(title: title(option), isSelected: selection == option) {
+      selection = option
+    }
+  }
+}
+
+/// 明るさの差と短い青線で選択中を示す。図は設定の意味を表す場合だけ付ける。
+struct MusicVideoChoiceButton: View {
+  let title: String
+  let isSelected: Bool
+  var rhythmMarks: Int? = nil
+  var frameAspect: CGFloat? = nil
+  let action: () -> Void
+
+  @Environment(\.isEnabled) private var isEnabled
+  @State private var isHovering = false
+  @FocusState private var isFocused: Bool
+
+  private let cornerRadius: CGFloat = 8
+
+  var body: some View {
+    Button(action: action) {
+      VStack(spacing: 12) {
+        if let rhythmMarks {
+          HStack(spacing: 4) {
+            ForEach(0..<rhythmMarks, id: \.self) { _ in
+              RoundedRectangle(cornerRadius: 2)
+                .fill(isSelected ? NeomorphicTheme.ink : NeomorphicTheme.muted)
+                .frame(height: 20)
+            }
+          }
+          .padding(.horizontal, 8)
+          .accessibilityHidden(true)
+        }
+        if let frameAspect {
+          RoundedRectangle(cornerRadius: 2)
+            .strokeBorder(isSelected ? NeomorphicTheme.ink : NeomorphicTheme.muted, lineWidth: 1)
+            .aspectRatio(frameAspect, contentMode: .fit)
+            .frame(width: 48, height: 32)
+            .accessibilityHidden(true)
+        }
+        Text(title)
+          .font(.appCaptionStrong)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .foregroundStyle(isSelected ? NeomorphicTheme.ink : NeomorphicTheme.muted)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 12)
+      .frame(maxWidth: .infinity, minHeight: 40)
+      .background(
+        RoundedRectangle(cornerRadius: cornerRadius)
+          .fill(isSelected ? NeomorphicTheme.controlSelected : (isHovering ? NeomorphicTheme.hover : NeomorphicTheme.control))
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: cornerRadius)
+          .strokeBorder(isFocused ? NeomorphicTheme.accent : NeomorphicTheme.cardBorder, lineWidth: isFocused ? 2 : 1)
+      }
+      .overlay(alignment: .bottom) {
+        if isSelected {
+          RoundedRectangle(cornerRadius: 1)
+            .fill(NeomorphicTheme.accent)
+            .frame(width: 20, height: 2)
+            .padding(.bottom, 4)
+        }
+      }
+      .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
+      .opacity(isEnabled ? 1 : 0.45)
+    }
+    .buttonStyle(.plain)
+    .focused($isFocused)
+    .onHover { isHovering = $0 }
+    .accessibilityLabel(title)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+    .accessibilityValue(isSelected ? "選択中" : "未選択")
+  }
+}
+
+/// 使用中の値は閉じていても確認できる。開閉状態は画面内だけで持つ。
+struct MusicVideoFoldout<Content: View>: View {
+  let title: String
+  var summary: String = ""
+  var selectedCutIndex: Int? = nil
+  @ViewBuilder var content: Content
+  @State private var isExpanded = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Button {
+        isExpanded.toggle()
+      } label: {
+        HStack(spacing: 8) {
+          Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+            .font(.system(size: 10, weight: .medium))
+            .frame(width: 12)
+          Text(title)
+            .font(.appCaptionStrong)
+          Spacer(minLength: 4)
+          Text(summary)
+            .font(.appMicro.monospacedDigit())
+            .foregroundStyle(NeomorphicTheme.muted)
+            .lineLimit(1)
+        }
+        .foregroundStyle(NeomorphicTheme.ink)
+        .frame(maxWidth: .infinity, minHeight: 24)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(title)
+      .accessibilityValue(isExpanded ? "展開中" : "折りたたみ中")
+      .accessibilityHint("押すと詳細設定を開閉します")
+
+      if isExpanded { content }
+    }
+    .padding(16)
+    .background(GlassCardSurface())
+    .onAppear {
+      if selectedCutIndex != nil { isExpanded = true }
+    }
+    .onChange(of: selectedCutIndex) { _, selected in
+      if selected != nil { isExpanded = true }
+    }
+  }
+}
+
+/// チェック操作を画面のタイルと同じ線・面で描く。
+struct MusicVideoCheckStyle: ToggleStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    Button {
+      configuration.isOn.toggle()
+    } label: {
+      HStack(spacing: 8) {
+        ZStack {
+          RoundedRectangle(cornerRadius: 4)
+            .fill(configuration.isOn ? NeomorphicTheme.ink : NeomorphicTheme.control)
+          RoundedRectangle(cornerRadius: 4)
+            .strokeBorder(NeomorphicTheme.cardBorder, lineWidth: 1)
+          if configuration.isOn {
+            Image(systemName: "checkmark")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(NeomorphicTheme.canvas)
+          }
+        }
+        .frame(width: 20, height: 20)
+        configuration.label
+          .font(.appCaption)
+          .foregroundStyle(NeomorphicTheme.ink)
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityValue(configuration.isOn ? "オン" : "オフ")
+  }
+}
+
+/// 作成ボタンを最も明るくし，保存などの操作は控えめな面にする。
+struct MusicVideoActionStyle: ButtonStyle {
+  var isPrimary = false
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.appCaptionStrong)
+      .foregroundStyle(isPrimary ? NeomorphicTheme.canvas : NeomorphicTheme.ink)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
+      .background(
+        RoundedRectangle(cornerRadius: 8)
+          .fill(isPrimary ? NeomorphicTheme.ink : NeomorphicTheme.control)
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: 8)
+          .strokeBorder(NeomorphicTheme.cardBorder, lineWidth: 1)
+      }
+      .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
   }
 }
 
@@ -295,7 +503,7 @@ struct MusicRangeControl: View {
       let range = viewModel.musicRange
       let start = range?.start ?? 0
       let end = range?.end ?? duration
-      SettingsRow(title: "使う範囲", detail: detail(start: start, end: end, duration: duration, isPartial: range != nil)) {
+      MusicVideoField(title: "使う範囲", detail: detail(start: start, end: end, duration: duration, isPartial: range != nil)) {
         VStack(alignment: .trailing, spacing: 6) {
           sliderRow(label: "開始", value: start, bounds: 0...(duration - MusicRange.minimumLength)) {
             viewModel.setMusicRange(start: $0, end: max(end, $0 + MusicRange.minimumLength))
@@ -324,7 +532,7 @@ struct MusicRangeControl: View {
         .font(.appMicro)
         .foregroundStyle(NeomorphicTheme.muted)
       Slider(value: Binding(get: { value }, set: onChange), in: bounds)
-        .frame(width: 170)
+        .frame(minWidth: 100, maxWidth: .infinity)
       Text(Self.clock(value))
         .font(.appCaption.monospacedDigit())
         .foregroundStyle(NeomorphicTheme.muted)
