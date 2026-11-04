@@ -1084,6 +1084,55 @@ struct MusicVideoTuningViewModelTests {
   }
 
   @Test
+  func portraitIsOnlyForTheCurrentSessionAndTheNextLaunchStartsLandscape() async throws {
+    let harness = try await makeHarness(videoCount: 1)
+    defer { harness.cleanUp() }
+    let store = MusicVideoPreferencesStore(defaults: harness.defaults)
+
+    // 縦を選んでいる間は縦のまま使えるが、保存されるのは同じ画質の横。
+    harness.viewModel.renderPreset = .portraitFullHD
+    #expect(harness.viewModel.renderPreset == .portraitFullHD)
+    #expect(store.load().renderPreset == .landscapeFullHD)
+
+    // 開き直す(新しい画面を作る)と、横から始まる。
+    let next = MusicVideoViewModel(preferencesStore: store)
+    next.attach(dataManager: harness.library)
+    #expect(next.renderPreset == .landscapeFullHD)
+
+    harness.viewModel.renderPreset = .portraitHD
+    #expect(store.load().renderPreset == .landscapeHD)
+  }
+
+  @Test
+  func aPortraitSizeSavedByAnEarlierVersionIsReadAsLandscape() async throws {
+    let harness = try await makeHarness(videoCount: 1)
+    defer { harness.cleanUp() }
+    let store = MusicVideoPreferencesStore(defaults: harness.defaults)
+
+    // 以前の版が保存した、縦の設定。
+    var stored = MusicVideoPreferences()
+    stored.renderPreset = .portraitHD
+    stored.cutStyle = .energetic
+    store.save(stored)
+
+    let viewModel = MusicVideoViewModel(preferencesStore: store)
+    viewModel.attach(dataManager: harness.library)
+    #expect(viewModel.renderPreset == .landscapeHD)   // 画質(720p)は保ち、向きだけ横へ
+    #expect(viewModel.cutStyle == .energetic)          // ほかの設定は、そのまま引き継ぐ
+  }
+
+  @Test
+  func renderPresetKnowsItsOrientation() {
+    #expect(MusicVideoRenderPreset.allCases.filter(\.isPortrait) == [.portraitFullHD, .portraitHD])
+    #expect(MusicVideoRenderPreset.portraitFullHD.landscapeEquivalent == .landscapeFullHD)
+    #expect(MusicVideoRenderPreset.portraitHD.landscapeEquivalent == .landscapeHD)
+    #expect(MusicVideoRenderPreset.landscapeFullHD.landscapeEquivalent == .landscapeFullHD)
+    #expect(MusicVideoRenderPreset.landscapeHD.landscapeEquivalent == .landscapeHD)
+    // 何も保存していないときの既定も横。
+    #expect(MusicVideoPreferences().renderPreset == .landscapeFullHD)
+  }
+
+  @Test
   func tuningIsSavedAndRestoredInTheNextSession() async throws {
     let harness = try await makeHarness(videoCount: 2)
     defer { harness.cleanUp() }

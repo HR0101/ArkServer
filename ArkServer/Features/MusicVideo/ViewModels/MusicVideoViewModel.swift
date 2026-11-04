@@ -262,7 +262,8 @@ final class MusicVideoViewModel: ObservableObject {
     preferences = stored
     isRestoringPreferences = true
     cutStyle = stored.cutStyle
-    renderPreset = stored.renderPreset
+    // 基本は横。縦は一時的な選択なので、保存されていても、同じ画質の横に読み替える。
+    renderPreset = stored.renderPreset.landscapeEquivalent
     exportQuality = stored.exportQuality
     cutTuning = stored.cutTuning
     lookTuning = stored.lookTuning
@@ -279,7 +280,8 @@ final class MusicVideoViewModel: ObservableObject {
   private func savePreferences() {
     guard !isRestoringPreferences else { return }
     preferences.cutStyle = cutStyle
-    preferences.renderPreset = renderPreset
+    // 縦は保存しない(開き直したときは横から始める)。
+    preferences.renderPreset = renderPreset.landscapeEquivalent
     preferences.exportQuality = exportQuality
     preferences.cutTuning = cutTuning
     preferences.lookTuning = lookTuning

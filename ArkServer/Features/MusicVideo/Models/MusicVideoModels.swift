@@ -83,6 +83,19 @@ nonisolated enum MusicVideoRenderPreset: String, Codable, CaseIterable, Hashable
     case .portraitHD: return .portraitHD
     }
   }
+
+  var isPortrait: Bool {
+    self == .portraitFullHD || self == .portraitHD
+  }
+
+  /// 同じ画質の横向き。基本は横にするので、縦の設定は保存せず、開き直したときにこれへ戻す。
+  var landscapeEquivalent: MusicVideoRenderPreset {
+    switch self {
+    case .portraitFullHD: return .landscapeFullHD
+    case .portraitHD: return .landscapeHD
+    case .landscapeFullHD, .landscapeHD: return self
+    }
+  }
 }
 
 /// 書き出しの画質。画面サイズは変えず、映像のビットレート(1秒あたりのデータ量)で決める。
