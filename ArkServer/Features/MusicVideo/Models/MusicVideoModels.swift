@@ -151,6 +151,40 @@ nonisolated struct MusicAnalysis: Codable, Equatable, Sendable {
   /// `energy` / `intensity` の標本間隔（秒）。
   var energyHop: Double
 
+  // 以下は、動きを曲に細かく合わせるための解析結果。解析していない(古いデータ・テスト用の簡易な解析)ときは、
+  // 空か nil のままにして、使う側は「情報なし」として扱う。
+
+  /// 拍ごとの強さ(0〜1)。`beats` と同じ並び。
+  var beatAccents: [Double] = []
+  /// 1小節の拍の数(3 か 4)。
+  var beatsPerBar: Int = 4
+  /// 小節の1拍目にあたる拍の、`beats` の添字を `beatsPerBar` で割った余り。分からなければ nil。
+  var downbeatPhase: Int?
+  /// 音の立ち上がり(onset)の細かい強さ(0〜1)。`onsetHop` 秒ごと。拍より細かい位置の合わせ込みに使う。
+  var onsetEnvelope: [Double] = []
+  /// `onsetEnvelope` の標本間隔（秒）。
+  var onsetHop: Double = 0.05
+  /// 曲の構造が変わる時刻(秒、昇順)。サビやドロップの頭。
+  var sectionBoundaries: [Double] = []
+
+  /// `index` 番目の拍の強さ。情報が無ければ中間の 0.5。
+  func accent(atBeat index: Int) -> Double {
+    beatAccents.indices.contains(index) ? beatAccents[index] : 0.5
+  }
+
+  /// `index` 番目の拍が、小節の1拍目か。小節の頭が分からないときは nil。
+  func isDownbeat(beatIndex index: Int) -> Bool? {
+    guard let downbeatPhase, beatsPerBar > 0 else { return nil }
+    return ((index - downbeatPhase) % beatsPerBar + beatsPerBar) % beatsPerBar == 0
+  }
+
+  /// `time` 秒を含む区間の onset の強さ。情報が無ければ 0。
+  func onset(at time: Double) -> Double {
+    guard !onsetEnvelope.isEmpty, onsetHop > 0 else { return 0 }
+    let index = Int((time / onsetHop).rounded(.down))
+    return onsetEnvelope.indices.contains(index) ? onsetEnvelope[index] : 0
+  }
+
   func energy(at time: Double) -> Double {
     guard !energy.isEmpty, energyHop > 0 else { return 0.5 }
     let index = min(max(0, Int(time / energyHop)), energy.count - 1)
@@ -176,20 +210,29 @@ nonisolated struct SourceMotionProfile: Codable, Equatable, Sendable {
   let hop: Double
   /// 動きの大きさ（0〜1）。
   let values: [Double]
+  /// 「急に動いた瞬間」の強さ（0〜1）。`values` と同じ間隔。動きが急に増えた所(動作の始まり・衝撃・画面の切り替わり)が高い。
+  /// 曲の大きな音(拍・アクセント)に、映像の大きな動きを重ねるために使う。調べていないときは空。
+  let impacts: [Double]
   /// 区間の平均を O(1) で求めるための累積和。保存はせず、読み込み時に作り直す。
-  private let prefixSums: [Double]
+  let prefixSums: [Double]
+  /// `impacts` の2乗の累積和。位置ごとの類似度の分母を O(1) で求めるために使う。保存はしない。
+  let impactSquarePrefix: [Double]
 
-  init(videoID: UUID, offset: Double = 0, duration: Double, hop: Double, values: [Double]) {
+  init(videoID: UUID, offset: Double = 0, duration: Double, hop: Double, values: [Double], impacts: [Double] = []) {
     self.videoID = videoID
     self.offset = offset
     self.duration = duration
     self.hop = hop
     self.values = values
+    // 長さが合わない衝撃の列は、使わない(位置がずれるより、情報なしにする)。
+    let aligned = impacts.count == values.count ? impacts : []
+    self.impacts = aligned
     self.prefixSums = Self.makePrefixSums(values)
+    self.impactSquarePrefix = Self.makePrefixSums(aligned.map { $0 * $0 })
   }
 
   private enum CodingKeys: String, CodingKey {
-    case videoID, offset, duration, hop, values
+    case videoID, offset, duration, hop, values, impacts
   }
 
   init(from decoder: Decoder) throws {
@@ -199,7 +242,8 @@ nonisolated struct SourceMotionProfile: Codable, Equatable, Sendable {
     let duration = try container.decode(Double.self, forKey: .duration)
     let hop = try container.decode(Double.self, forKey: .hop)
     let values = try container.decode([Double].self, forKey: .values)
-    self.init(videoID: videoID, offset: offset, duration: duration, hop: hop, values: values)
+    let impacts = try container.decodeIfPresent([Double].self, forKey: .impacts) ?? []
+    self.init(videoID: videoID, offset: offset, duration: duration, hop: hop, values: values, impacts: impacts)
   }
 
   private static func makePrefixSums(_ values: [Double]) -> [Double] {
@@ -290,5 +334,28 @@ nonisolated struct SeededGenerator: RandomNumberGenerator, Sendable {
     z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
     z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
     return z ^ (z >> 31)
+  }
+}
+
+extension MusicAnalysis {
+  private enum CodingKeys: String, CodingKey {
+    case duration, tempo, beats, energy, intensity, energyHop
+    case beatAccents, beatsPerBar, downbeatPhase, onsetEnvelope, onsetHop, sectionBoundaries
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    duration = try container.decode(Double.self, forKey: .duration)
+    tempo = try container.decode(Double.self, forKey: .tempo)
+    beats = try container.decode([Double].self, forKey: .beats)
+    energy = try container.decode([Double].self, forKey: .energy)
+    intensity = try container.decode([MusicIntensity].self, forKey: .intensity)
+    energyHop = try container.decode(Double.self, forKey: .energyHop)
+    beatAccents = try container.decodeIfPresent([Double].self, forKey: .beatAccents) ?? []
+    beatsPerBar = try container.decodeIfPresent(Int.self, forKey: .beatsPerBar) ?? 4
+    downbeatPhase = try container.decodeIfPresent(Int.self, forKey: .downbeatPhase)
+    onsetEnvelope = try container.decodeIfPresent([Double].self, forKey: .onsetEnvelope) ?? []
+    onsetHop = try container.decodeIfPresent(Double.self, forKey: .onsetHop) ?? 0.05
+    sectionBoundaries = try container.decodeIfPresent([Double].self, forKey: .sectionBoundaries) ?? []
   }
 }

@@ -22,6 +22,7 @@ nonisolated enum ClipPoolError: LocalizedError {
 }
 
 /// 解析前の（正規化していない）動きの時系列。キャッシュにはこの形で保存する。
+/// 「急に動いた瞬間」(衝撃)は、この動きの列から作れるので、保存しない。
 nonisolated struct RawMotionWindow: Codable, Equatable, Sendable {
   let offset: Double
   let duration: Double
@@ -39,7 +40,9 @@ nonisolated struct ClipPoolBuilder: Sendable {
   /// 1本の動画から調べる窓の最大数。
   var maxWindowsPerVideo = 6
   /// 動きを調べるときの1秒あたりの標本数。
-  var analysisFramesPerSecond = 4.0
+  /// 拍の間隔(120BPMで0.5秒)より十分細かくしないと、拍と動きの山を合わせられない。
+  /// 動画の読み込み(復号)は、標本数に関わらず全フレームぶん行うので、細かくしても重さはあまり増えない。
+  var analysisFramesPerSecond = 12.0
   /// 同時に解析する動画の数。
   var maxConcurrentAnalyses = 3
   /// 解析する動画の最大本数。これを超えたらシードで無作為に選ぶ。
@@ -47,7 +50,7 @@ nonisolated struct ClipPoolBuilder: Sendable {
   /// キャッシュの保存先。nil ならキャッシュしない。
   var cacheDirectory: URL?
 
-  private static let cacheVersion = 1
+  private static let cacheVersion = 2
 
   func build(
     sources: [ClipPoolSource],
@@ -240,24 +243,51 @@ nonisolated struct ClipPoolBuilder: Sendable {
     let high = allValues[Int(Double(allValues.count - 1) * 0.95)]
     let range = high - low
 
+    // 「急に動いた瞬間」も、素材全体で揃えて規格化する(上位1%を1とする)。
+    let rawImpactsByWindow = analyzed.map { entry in entry.windows.map { Self.rawImpacts(from: $0.values) } }
+    let allImpacts = rawImpactsByWindow.flatMap { $0.flatMap { $0 } }.sorted()
+    let impactScale = allImpacts.isEmpty ? 0 : allImpacts[Int(Double(allImpacts.count - 1) * 0.99)]
+
     var profiles: [SourceMotionProfile] = []
-    for (source, windows) in analyzed {
-      for window in windows {
+    for (sourceIndex, entry) in analyzed.enumerated() {
+      for (windowIndex, window) in entry.windows.enumerated() {
         let values: [Double] = window.values.map { value in
           guard range > 1e-9 else { return 0.5 }
           return min(1, max(0, (value - low) / range))
         }
+        let impacts: [Double] = rawImpactsByWindow[sourceIndex][windowIndex].map { value in
+          impactScale > 1e-9 ? min(1, value / impactScale) : 0
+        }
         profiles.append(
           SourceMotionProfile(
-            videoID: source.videoID,
+            videoID: entry.source.videoID,
             offset: window.offset,
             duration: window.duration,
             hop: window.hop,
-            values: values
+            values: values,
+            impacts: impacts
           )
         )
       }
     }
     return profiles
+  }
+
+  /// 動きの列から、「急に動いた瞬間」の強さ(規格化前)を求める。
+  /// その位置の動きが、直前の3つの平均より増えた分(増えなければ 0)。増えた位置が分かるよう、
+  /// 前後に少しにじませる(隣の標本に半分ずつ)。
+  static func rawImpacts(from values: [Double]) -> [Double] {
+    guard !values.isEmpty else { return [] }
+    var rises = [Double](repeating: 0, count: values.count)
+    for index in 1..<max(1, values.count) {
+      let lower = max(0, index - 3)
+      let baseline = values[lower..<index].reduce(0, +) / Double(index - lower)
+      rises[index] = max(0, values[index] - baseline)
+    }
+    return rises.indices.map { index in
+      let previous = index > 0 ? rises[index - 1] : 0
+      let next = index + 1 < rises.count ? rises[index + 1] : 0
+      return 0.5 * rises[index] + 0.25 * (previous + next)
+    }
   }
 }
