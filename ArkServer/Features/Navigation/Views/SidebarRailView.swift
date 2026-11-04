@@ -177,7 +177,7 @@ struct SidebarRailView: View {
 
             VStack(spacing: 6) {
                 RailButton(title: "ストレージ管理", symbol: "internaldrive", count: nil, isActive: false, action: onShowStorage)
-                RailButton(title: "詳細設定", symbol: "gearshape", count: nil, isActive: false, action: onShowPreferences)
+                RailButton(title: "詳細設定", symbol: "gearshape", count: nil, isActive: SettingsRouting.isSettings(selection), action: onShowPreferences)
             }
             .padding(.bottom, 14)
         }
@@ -215,7 +215,7 @@ private struct RailButton: View {
         .overlay(alignment: .topTrailing) {
             if let count, count > 0 {
                 Text(Self.compact(count))
-                    .font(.appMicro.weight(.semibold).monospacedDigit())
+                    .font(.appMicroStrong.monospacedDigit())
                     .foregroundStyle(isActive ? NeomorphicTheme.ink : NeomorphicTheme.muted)
                     .padding(.horizontal, 4.5)
                     .frame(minWidth: 16, minHeight: 15)

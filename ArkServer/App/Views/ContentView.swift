@@ -40,7 +40,7 @@ struct ContentView: View {
             // ライブラリ画面を出しっぱなしにすることではない。
             if shouldShowLibraryView {
               // デスクトップが透けるガラス地はやめ、単色の下地にする（色の濁りと環境による見た目の差をなくす）。
-              NeomorphicTheme.canvas
+              NeomorphicTheme.rail
                 .id(appSettings.neomorphicDarkBase)
                 .ignoresSafeArea()
             } else {
@@ -72,12 +72,10 @@ struct ContentView: View {
         // ウィンドウのクロム設定はライブラリ画面の有無に関わらず効かせる必要があるため、
         // ライブラリ画面ではなくこの常駐の階層に付ける。
         .toolbar(isToolbarHidden ? .hidden : .automatic, for: .windowToolbar)
-        // タイトルバーの帯はサイドバーと同じ色にし、窓の上端でサイドバーと一続きに見せる。
-        .toolbarBackground(NeomorphicTheme.sidebar, for: .windowToolbar)
-        .toolbarBackground(
-            isToolbarHidden ? .hidden : .visible,
-            for: .windowToolbar
-        )
+        // タイトルバーの帯は、左のレールと同じ「窓の枠」の色にして内側のパネルをくぼませて見せる。
+        // 帯の色は、ツールバーの背景として描かず、窓の背景色（WindowChromeConfigurator で枠の色にしてある）に任せる。
+        // ツールバーの背景を出すと、検索欄などのあるライブラリ画面で、帯がパネルの中（見出しの背後）まで広がってしまう。
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .background(
             WindowChromeConfigurator(isToolbarHidden: isToolbarHidden)
         )
@@ -92,13 +90,6 @@ struct ContentView: View {
             \.appMenuContext,
             dataManager.isStorageReady ? appMenuContext : nil
         )
-        .sheet(isPresented: $viewModel.isShowingPreferences) {
-            PreferencesView(
-                dataManager: dataManager,
-                webServerManager: viewModel.webServerManager,
-                appSettings: appSettings
-            )
-        }
         .sheet(isPresented: $viewModel.isShowingStorageManager) {
             StorageManagerView(dataManager: dataManager)
         }
@@ -130,6 +121,24 @@ struct ContentView: View {
             }
         } message: {
             Text(viewModel.sceneExtractionNavigationError ?? "")
+        }
+    }
+
+    /// 左のサイドバー。設定のページでは、アルバムの一覧の代わりに設定の項目の一覧を出す。
+    @ViewBuilder
+    private var sidebarColumn: some View {
+        if case .settings(let pane) = viewModel.selection {
+            SettingsSidebarView(
+                selected: pane,
+                onSelect: { viewModel.openSettings($0) },
+                onBack: { viewModel.closeSettings() }
+            )
+        } else {
+            MainSidebarView(
+                dataManager: dataManager,
+                webServerManager: viewModel.webServerManager,
+                selection: $viewModel.selection
+            )
         }
     }
 
@@ -234,8 +243,8 @@ struct ContentView: View {
 
     private var libraryView: some View {
         ZStack {
-            // ツールバーの背後まで同じ背景を広げ，フルスクリーン時の色の段差をなくす。
-            CommandDeckBackground()
+            // ツールバーの背後まで同じ背景（窓の枠の色）を広げ，フルスクリーン時の色の段差をなくす。
+            NeomorphicTheme.rail.ignoresSafeArea()
 
             // 標準の NavigationSplitView は macOS 26 でサイドバーが「浮いた角丸のガラス」になり、
             // 窓の端や上下に余白ができて平らにできない。そこで左カラムを自前で組み、窓の端から端まで
@@ -249,29 +258,21 @@ struct ContentView: View {
                     allVideosAlbumID: dataManager.albums.first { $0.name == LibraryViewModel.allVideosAlbumName }?.id,
                     allPhotosAlbumID: dataManager.albums.first { $0.name == LibraryViewModel.allPhotosAlbumName }?.id,
                     onShowStorage: { viewModel.isShowingStorageManager = true },
-                    onShowPreferences: { viewModel.isShowingPreferences = true }
+                    onShowPreferences: { viewModel.toggleSettings() }
                 )
                 .background(NeomorphicTheme.rail.ignoresSafeArea())
-                .overlay(alignment: .trailing) {
-                    Rectangle()
-                        .fill(NeomorphicTheme.separator)
-                        .frame(width: 0.5)
-                        .ignoresSafeArea()
-                }
 
+                // サイドバーと内容は、窓の枠の内側にはめ込んだ1枚の角丸パネルにする。
+                HStack(spacing: 0) {
                 if isSidebarVisible {
-                    MainSidebarView(
-                        dataManager: dataManager,
-                        webServerManager: viewModel.webServerManager,
-                        selection: $viewModel.selection
-                    )
+                    sidebarColumn
                         .frame(width: sidebarWidth)
                         .frame(maxHeight: .infinity)
                         .background(NeomorphicTheme.sidebar.ignoresSafeArea())
                         .overlay(alignment: .trailing) {
                             Rectangle()
                                 .fill(NeomorphicTheme.separator)
-                                .frame(width: 0.5)
+                                .frame(width: 1)
                                 .ignoresSafeArea()
                         }
                         .transition(.move(edge: .leading))
@@ -351,6 +352,14 @@ struct ContentView: View {
                             onAnalyzeScenes: viewModel.openSceneExtraction
                         )
                             .navigationTitle(path.components(separatedBy: "/").last ?? path)
+                    case .settings(let pane):
+                        SettingsPageView(
+                            pane: pane,
+                            dataManager: dataManager,
+                            webServerManager: viewModel.webServerManager,
+                            appSettings: appSettings
+                        )
+                            .navigationTitle("設定")
                     case .none:
                         ContentUnavailableView("サイドバーから項目を選択してください", systemImage: "sidebar.left")
                     }
@@ -363,10 +372,18 @@ struct ContentView: View {
                 .toolbar(removing: .title)
                 // タイトルを外すと、右寄せだった各画面のボタンが左へ詰まるので、中央に伸びる空きを置いて右側に戻す。
                 .toolbar { principalSpacer }
-                // 標準の分割表示が確保していたツールバーの下の余白を、自前の構成でも同じだけ空ける。
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: 44)
                 }
+                // パネルの上端は、ツールバー（タイトルバーの帯）の下から始める。右と下には枠の色を少し残す。
+                // 下地を持たない画面（ライブラリの一覧など）でも、窓の枠の色が透けないよう、内容の下地はパネルが持つ。
+                .background(NeomorphicTheme.canvas)
+                .clipShape(RoundedRectangle(cornerRadius: DS.cardCornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.cardCornerRadius, style: .continuous)
+                        .strokeBorder(NeomorphicTheme.cardBorder, lineWidth: 1)
+                )
+                .padding(.top, 44)
+                .padding(.trailing, 8)
+                .padding(.bottom, 8)
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -417,7 +434,7 @@ struct ContentView: View {
             isPresentingPlayer: playbackCoordinator.isPresenting,
             canToggleMiniPlayer: isSingleVideoPlayback,
             isMiniPlayerActive: playbackCoordinator.isMiniPlayerActive,
-            showPreferences: { viewModel.isShowingPreferences = true },
+            showPreferences: { viewModel.openSettings() },
             showStorageManager: { viewModel.isShowingStorageManager = true },
             showAccessLog: { viewModel.isShowingAccessLog = true },
             showHome: { viewModel.selection = .home },
@@ -490,7 +507,7 @@ private struct LibraryStorageInitializationErrorView: View {
 
             VStack(spacing: 8) {
                 Text("ライブラリ保存先を準備できませんでした")
-                    .font(.appTitle.bold())
+                    .font(.appTitle)
                 Text("データを保護するため，ライブラリの読み込みとサーバー起動を停止しています．")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -530,7 +547,7 @@ private struct LibraryStorageInitializationErrorView: View {
     private func errorRow(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.appCaption.weight(.semibold))
+                .font(.appCaptionStrong)
                 .foregroundStyle(.secondary)
             Text(value)
                 .textSelection(.enabled)

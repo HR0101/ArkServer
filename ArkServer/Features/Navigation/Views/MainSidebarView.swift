@@ -48,7 +48,7 @@ struct MainSidebarView: View {
     // dataManager.videos / .albums が実際に変化したときだけ refreshSidebarCaches() で更新する。
     private let sidebarContentPadding: CGFloat = 10
     private let sidebarTopPadding: CGFloat = 12
-    private let sidebarToolbarInset: CGFloat = 54
+    private let sidebarToolbarInset: CGFloat = 14
     private let sidebarRowHeight: CGFloat = 32
     /// 表紙と2行目（要約）つきの行の高さ。
     private let sidebarDetailRowHeight: CGFloat = 46
@@ -103,12 +103,7 @@ struct MainSidebarView: View {
                         .font(.appCaption)
                 }
                 .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(NeomorphicTheme.surface)
-                        .shadow(color: .white.opacity(0.9), radius: 7, x: -5, y: -5)
-                        .shadow(color: NeomorphicTheme.shadow.opacity(0.3), radius: 12, x: 7, y: 7)
-                )
+                .background(GlassCardSurface())
             }
         }
         .alert("エクスポート完了", isPresented: $showSidebarExportResultAlert) {
@@ -142,7 +137,7 @@ struct MainSidebarView: View {
         let buttonsWidth: CGFloat = isAlbumSelectionMode ? 116 : 60
         return HStack(spacing: 0) {
             Text("アルバム")
-                .font(.system(size: 11, weight: .bold, design: .default))
+                .font(.appCaptionStrong)
                 .foregroundStyle(NeomorphicTheme.muted)
                 .padding(.leading, 10)
                 .frame(width: sidebarRowWidth - buttonsWidth, alignment: .leading)
@@ -289,7 +284,7 @@ struct MainSidebarView: View {
                       if matchingAlbums.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                           Text("一致するアルバムはありません")
-                            .font(.appBody.weight(.semibold))
+                            .font(.appBodyStrong)
                           Text("名前やフォルダ名を変えて検索してください．")
                             .font(.appCaption)
                             .foregroundStyle(NeomorphicTheme.muted)
@@ -414,7 +409,7 @@ struct MainSidebarView: View {
                 .foregroundStyle(isActive ? NeomorphicTheme.ink : NeomorphicTheme.muted)
                 .frame(width: sidebarIconWidth)
             Text(title)
-                .font(.system(size: 13, weight: .regular, design: .default))
+                .font(.appBody)
                 .foregroundStyle(NeomorphicTheme.ink)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -457,7 +452,7 @@ struct MainSidebarView: View {
             sidebarCover(summary, isFolder: isFolder)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 13, weight: .regular, design: .default))
+                    .font(.appBody)
                     .foregroundStyle(NeomorphicTheme.ink)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -514,13 +509,13 @@ struct MainSidebarView: View {
 
     private func sidebarPlainLabel(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
-            .font(.system(size: 12, weight: .semibold, design: .default))
+            .font(.appCaptionStrong)
             .foregroundStyle(NeomorphicTheme.ink)
     }
 
     private func sidebarSectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 12, weight: .medium, design: .default))
+            .font(.appCaptionStrong)
             .foregroundStyle(NeomorphicTheme.muted)
             .padding(.leading, sidebarRowLeadingPadding)
             .padding(.trailing, sidebarRowTrailingPadding)
@@ -536,7 +531,7 @@ struct MainSidebarView: View {
                 .foregroundStyle(NeomorphicTheme.muted)
                 .frame(width: sidebarIconWidth)
             Text(title)
-                .font(.system(size: 13, weight: .regular, design: .default))
+                .font(.appBody)
                 .foregroundStyle(NeomorphicTheme.ink)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -552,7 +547,7 @@ struct MainSidebarView: View {
         // 件数は補足情報なので、色付きのカプセルにせず、控えめな数字だけにする
         // （全行に青い太字のバッジが並ぶと、行の名前より数字が目立ってしまう）。
         Text("\(count.formatted())")
-            .font(.system(size: 11, weight: .regular))
+            .font(.appMicro)
             .monospacedDigit()
             .foregroundStyle(NeomorphicTheme.muted)
     }
@@ -992,7 +987,7 @@ struct MainSidebarView: View {
 
             VStack(spacing: 4) {
                 Text("新規アルバム")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.appTitle)
                 Text("名前とタイプを選んで作成します")
                     .font(.appCaption)
                     .foregroundStyle(NeomorphicTheme.muted)
