@@ -668,6 +668,8 @@ final class MusicVideoViewModel: ObservableObject {
   private static func changedTitle(from old: MusicVideoLookTuning, to new: MusicVideoLookTuning) -> String {
     if old.fitMode != new.fitMode { return "画面の合わせ方" }
     if old.transition != new.transition { return "切り替え効果" }
+    if old.sourceAudio != new.sourceAudio { return "素材の音" }
+    if old.sourceParts != new.sourceParts { return "素材の音の成分" }
     return "フェード"
   }
 

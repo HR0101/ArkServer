@@ -162,6 +162,27 @@ struct MusicVideoTuningSections: View {
       MusicVideoField(title: "切り替え効果", detail: viewModel.lookTuning.transition.summary) {
         MusicVideoChoices(options: MusicVideoTransition.allCases, title: \.displayName, selection: $viewModel.lookTuning.transition, minimumWidth: 100)
       }
+      MusicVideoField(title: "素材の音", detail: viewModel.lookTuning.sourceAudio.summary) {
+        MusicVideoChoices(options: SourceAudioLevel.allCases, title: \.displayName, selection: $viewModel.lookTuning.sourceAudio, minimumWidth: 100)
+      }
+      MusicVideoField(title: "残す音（素材）", detail: sourceAudioPartsDetail) {
+        HStack(spacing: 8) {
+          ForEach(SourceAudioParts.choices, id: \.name) { choice in
+            MusicVideoChoiceButton(
+              title: choice.name,
+              isSelected: viewModel.lookTuning.sourceParts.contains(choice.part)
+            ) {
+              // 組み合わせて選べる。押すたびに、入れる・外すを切り替える。
+              if viewModel.lookTuning.sourceParts.contains(choice.part) {
+                viewModel.lookTuning.sourceParts.remove(choice.part)
+              } else {
+                viewModel.lookTuning.sourceParts.insert(choice.part)
+              }
+            }
+          }
+        }
+      }
+      .disabled(viewModel.lookTuning.sourceAudio == .off)
       MusicVideoFoldout(title: "映像と音のフェード", summary: viewModel.lookTuning.fadeSeconds == 0 ? "なし" : Self.seconds(viewModel.lookTuning.fadeSeconds)) {
         MusicVideoParameterBar(
           title: "最初と最後のフェード", options: MusicVideoLookTuning.fadeChoices,
@@ -178,6 +199,11 @@ struct MusicVideoTuningSections: View {
       text += "\n縦向きは一時的な選択です．アプリを開き直すと、横に戻ります．"
     }
     return text
+  }
+
+  private var sourceAudioPartsDetail: String {
+    if viewModel.lookTuning.sourceAudio == .off { return "「素材の音」を入れると選べます．" }
+    return viewModel.lookTuning.sourceParts.summary
   }
 
   private var fadeDetail: String {
