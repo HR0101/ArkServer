@@ -3,11 +3,31 @@
 import AppKit
 import SwiftUI
 
-/// プレビューを、macOS 標準の全画面ウィンドウで開く。
-/// 全画面をやめる(Esc・F・ダブルクリック・操作部のボタン)と、ウィンドウごと閉じて、元の画面へ戻る。
+/// 全画面のウィンドウ。枠の無い窓なので、そのままではキー入力を受けられない。受けられるようにして、Esc で閉じる。
+private final class FullScreenWindow: NSWindow {
+  var onCancel: (() -> Void)?
+
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { true }
+
+  /// Esc。
+  override func cancelOperation(_ sender: Any?) {
+    onCancel?()
+  }
+}
+
+/// プレビューを、画面全体を覆うウィンドウで開く。
+///
+/// macOS 標準の全画面(`toggleFullScreen`)は使わない。アプリ本体の窓が全画面になっているとき、
+/// 2つ目の窓は全画面に入れず、小さな窓のまま残ってしまう(`windowDidFailToEnterFullScreen`)。
+/// 画面と同じ大きさの枠なしウィンドウをメニューバーとDockより上に出せば、本体が全画面でもそうでなくても、同じように全画面になる。
+/// 全画面をやめる(Esc・F・ダブルクリック・操作部のボタン)と、ウィンドウを閉じて、元の画面へ戻る。
 @MainActor
 final class MusicVideoFullScreenPresenter: NSObject, NSWindowDelegate {
-  private var window: NSWindow?
+  private var window: FullScreenWindow?
+  /// 全画面を開く前に操作していた窓。閉じたあと、ここへ操作を戻す。
+  private weak var previousKeyWindow: NSWindow?
+  private var screenObserver: NSObjectProtocol?
 
   var isPresented: Bool { window != nil }
 
@@ -19,48 +39,70 @@ final class MusicVideoFullScreenPresenter: NSObject, NSWindowDelegate {
       return
     }
 
+    // 元の画面(いま操作しているウィンドウ)があるディスプレイを覆う。(置かないと、別のディスプレイに出ることがある)
+    previousKeyWindow = NSApp.keyWindow
+    guard let screen = NSApp.keyWindow?.screen ?? NSApp.mainWindow?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+
     let content = MusicVideoFullScreenView(viewModel: viewModel) { [weak self] in self?.close() }
-    let window = NSWindow(
-      contentRect: CGRect(x: 0, y: 0, width: 1280, height: 720),
-      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+    let window = FullScreenWindow(
+      contentRect: screen.frame,
+      styleMask: [.borderless],
       backing: .buffered,
-      defer: false
+      defer: false,
+      screen: screen
     )
     window.title = "プレビュー"
-    window.titleVisibility = .hidden
-    window.titlebarAppearsTransparent = true
     window.isReleasedWhenClosed = false
     window.backgroundColor = .black
-    window.collectionBehavior = [.fullScreenPrimary]
+    window.isOpaque = true
+    window.hasShadow = false
+    window.animationBehavior = .none
+    // メニューバーとDockの上に出す。本体が全画面(別のSpace)のときも、そのSpaceの上に重ねる。
+    window.level = .mainMenu + 1
+    window.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace, .ignoresCycle]
+    // 別のアプリに切り替えたときは隠れて、戻ると出る(他のアプリの上に居座らない)。
+    window.hidesOnDeactivate = true
     window.contentView = NSHostingView(rootView: content)
     window.delegate = self
-    // 元の画面(いま操作しているウィンドウ)があるディスプレイの中央に置いてから、全画面にする。
-    // (置かないと、別のディスプレイで全画面になることがある)
-    let screen = NSApp.keyWindow?.screen ?? NSApp.mainWindow?.screen ?? NSScreen.main
-    if let frame = screen?.visibleFrame {
-      let size = window.frame.size
-      window.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2))
-    } else {
-      window.center()
-    }
+    window.onCancel = { [weak self] in self?.close() }
     self.window = window
 
-    window.makeKeyAndOrderFront(nil)
-    window.toggleFullScreen(nil)
+    // ディスプレイの接続が変わったときは、覆う大きさを合わせ直す。
+    screenObserver = NotificationCenter.default.addObserver(
+      forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.fitToScreen() }
+    }
+
+    window.setFrame(screen.frame, display: true)
+    NSApp.activate(ignoringOtherApps: true)
+    window.orderFrontRegardless()
+    window.makeKey()
   }
 
   func close() {
     window?.close()
   }
 
+  /// 覆うディスプレイの大きさに合わせる。ディスプレイが無くなっていたら、閉じる。
+  private func fitToScreen() {
+    guard let window else { return }
+    guard let screen = window.screen ?? NSScreen.main else {
+      close()
+      return
+    }
+    window.setFrame(screen.frame, display: true)
+  }
+
   // MARK: NSWindowDelegate
 
   func windowWillClose(_ notification: Notification) {
+    if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+    screenObserver = nil
+    // 閉じる前に押されたキーの入力が残らないよう、元の窓へ操作を戻す。
+    let previous = previousKeyWindow
     window = nil
-  }
-
-  /// 全画面をやめたら、通常サイズのウィンドウは残さず閉じる。
-  func windowDidExitFullScreen(_ notification: Notification) {
-    close()
+    previousKeyWindow = nil
+    if let previous, previous.isVisible { previous.makeKeyAndOrderFront(nil) }
   }
 }

@@ -390,6 +390,8 @@ struct MusicVideoFullScreenView: View {
       if isGone { close() }
     }
     .background(shortcuts)
+    // Esc。ウィンドウ側(`cancelOperation`)でも受けているが、SwiftUI のビューが先に受けた場合に備える。
+    .onExitCommand(perform: close)
     .accessibilityIdentifier("musicvideo.fullScreen")
   }
 
