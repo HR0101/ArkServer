@@ -250,14 +250,136 @@ nonisolated enum MusicVideoTransition: String, Codable, CaseIterable, Hashable, 
   }
 }
 
+/// 素材動画の元の音を、音楽に重ねて入れるか。入れるときの大きさ。
+nonisolated enum SourceAudioLevel: String, Codable, CaseIterable, Hashable, Sendable {
+  case off
+  case low
+  case medium
+  case full
+
+  var displayName: String {
+    switch self {
+    case .off: return "入れない"
+    case .low: return "小さめ"
+    case .medium: return "中くらい"
+    case .full: return "音楽と同じ"
+    }
+  }
+
+  /// 素材の音に掛ける音量(音楽は 1)。0 なら素材の音を入れない。
+  var volume: Float {
+    switch self {
+    case .off: return 0
+    case .low: return 0.3
+    case .medium: return 0.6
+    case .full: return 1
+    }
+  }
+
+  var summary: String {
+    switch self {
+    case .off: return "音楽だけを流します．素材動画の音は入れません．"
+    case .low: return "音楽に、素材動画の音を小さく重ねます．"
+    case .medium: return "音楽に、素材動画の音を中くらいの大きさで重ねます．"
+    case .full: return "音楽と同じ大きさで、素材動画の音を重ねます．音楽が聞き取りにくくなることがあります．"
+    }
+  }
+}
+
+/// 素材動画の音のうち、残す成分（音楽・声・効果音の組み合わせ）。「素材の音」を入れるときだけ効く。
+///
+/// 3つとも残すなら、素材の音をそのまま使う（分ける処理はしない）。声は倍音を見つけて取り除くので、比較的よく分かれる。
+/// 音楽と効果音の区別は、鳴り続けているか・効果音として認識された区間か、で見分けるだけなので、おおまか。
+nonisolated struct SourceAudioParts: OptionSet, Codable, Hashable, Sendable {
+  let rawValue: Int
+
+  static let music = SourceAudioParts(rawValue: 1 << 0)
+  static let voice = SourceAudioParts(rawValue: 1 << 1)
+  static let effects = SourceAudioParts(rawValue: 1 << 2)
+  static let all: SourceAudioParts = [.music, .voice, .effects]
+
+  /// 画面に並べる順番と名前。
+  static let choices: [(part: SourceAudioParts, name: String)] = [
+    (.music, "音楽"), (.voice, "声"), (.effects, "効果音"),
+  ]
+
+  /// 分ける処理が要るか。全部残すなら、素材の音をそのまま使えるので不要。
+  var needsSeparation: Bool { !isEmpty && self != .all }
+
+  var summary: String {
+    if isEmpty { return "素材の音は入れません．" }
+    if self == .all { return "素材動画の音を、そのまま入れます．" }
+    var text = "選んだ成分だけを残します．"
+    if !contains(.voice) { text += "声は、倍音を見つけて取り除きます．" }
+    text += "音楽と効果音の見分けは、鳴り続けているか・効果音として認識された区間か、で判断するおおまかなものです．"
+    text += "初めて使うカットは、音を調べるぶん少し時間がかかります．"
+    return text
+  }
+
+  // 保存は、名前の並びにする（ビットの意味が変わっても読めるように）。
+  private static let names: [(part: SourceAudioParts, name: String)] = [(.music, "music"), (.voice, "voice"), (.effects, "effects")]
+
+  init(rawValue: Int) { self.rawValue = rawValue }
+
+  init(from decoder: Decoder) throws {
+    let stored = try decoder.singleValueContainer().decode([String].self)
+    self = Self.names.reduce(into: []) { result, entry in
+      if stored.contains(entry.name) { result.insert(entry.part) }
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(Self.names.filter { contains($0.part) }.map(\.name))
+  }
+}
+
 /// 見た目と音に効く調整項目。カット割りは変わらず、合成だけをやり直す。
 nonisolated struct MusicVideoLookTuning: Codable, Equatable, Sendable {
   var fitMode: MusicVideoFitMode = .fill
   var transition: MusicVideoTransition = .cut
   /// 映像と音の、最初と最後のフェード(秒)。0 ならフェードしない。
   var fadeSeconds: Double = 0
+  /// 素材動画の元の音を入れるか。音楽の音量は変えず、その上に重ねる。
+  var sourceAudio: SourceAudioLevel = .off
+  /// 素材の音のうち残す成分。`sourceAudio` が `.off` のときは使わない。
+  var sourceParts: SourceAudioParts = .all
 
   static let fadeChoices: [Double] = [0, 0.5, 1, 2]
+}
+
+nonisolated extension MusicVideoLookTuning {
+  private enum CodingKeys: String, CodingKey {
+    case fitMode, transition, fadeSeconds, sourceAudio, sourceParts
+    /// 以前の保存データにあった項目（読むだけ）。`remove` なら、声以外を残す。
+    case sourceVoice
+  }
+
+  /// 項目が足りない古い保存データでも、読めた分は使い、残りは既定値にする。
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let defaults = MusicVideoLookTuning()
+    fitMode = try container.decodeIfPresent(MusicVideoFitMode.self, forKey: .fitMode) ?? defaults.fitMode
+    transition = try container.decodeIfPresent(MusicVideoTransition.self, forKey: .transition) ?? defaults.transition
+    fadeSeconds = try container.decodeIfPresent(Double.self, forKey: .fadeSeconds) ?? defaults.fadeSeconds
+    sourceAudio = try container.decodeIfPresent(SourceAudioLevel.self, forKey: .sourceAudio) ?? defaults.sourceAudio
+    if let parts = try container.decodeIfPresent(SourceAudioParts.self, forKey: .sourceParts) {
+      sourceParts = parts
+    } else if try container.decodeIfPresent(String.self, forKey: .sourceVoice) == "remove" {
+      sourceParts = SourceAudioParts.all.subtracting(.voice)
+    } else {
+      sourceParts = defaults.sourceParts
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(fitMode, forKey: .fitMode)
+    try container.encode(transition, forKey: .transition)
+    try container.encode(fadeSeconds, forKey: .fadeSeconds)
+    try container.encode(sourceAudio, forKey: .sourceAudio)
+    try container.encode(sourceParts, forKey: .sourceParts)
+  }
 }
 
 /// 曲のうち、映像にする範囲(秒)。
