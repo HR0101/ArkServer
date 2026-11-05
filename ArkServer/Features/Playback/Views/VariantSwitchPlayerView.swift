@@ -201,7 +201,7 @@ struct VariantSwitchPlayerView: View {
                 HStack {
                     Button("閉じる") { close() }
                     Button("再試行") { viewModel.retryContentAlignment() }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(AppActionButtonStyle(isPrimary: true))
                 }
             }
             .foregroundStyle(.white)
@@ -378,7 +378,7 @@ struct VariantSwitchPlayerView: View {
             } label: {
                 Label("削除", systemImage: "trash")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(AppActionButtonStyle(isPrimary: true))
             .controlSize(.small)
             .disabled(viewModel.markedForDeletionIDs.isEmpty)
         }
@@ -468,7 +468,7 @@ struct VariantSwitchPlayerView: View {
             Toggle(isOn: $viewModel.isAutoSwitching) {
                 Text("自動切り替え").font(.appCaption)
             }
-            .toggleStyle(.switch)
+            .toggleStyle(AppToggleStyle())
             .controlSize(.mini)
             .help("一定間隔で差分を自動的に切り替える（\(keyLabel(.variantToggleAuto))）")
 
@@ -498,7 +498,7 @@ struct VariantSwitchPlayerView: View {
             Toggle(isOn: $viewModel.avoidsImmediateRepeat) {
                 Text("同じものを続けない").font(.appCaption)
             }
-            .toggleStyle(.checkbox)
+            .toggleStyle(AppToggleStyle(isCheckbox: true))
             .controlSize(.mini)
             .help("切り替えたのに同じ差分が選ばれて「何も変わらない」のを防ぎます")
         }
@@ -510,7 +510,7 @@ struct VariantSwitchPlayerView: View {
                 Text("BGM音量を揃える")
                     .font(.appCaption.weight(.semibold))
             }
-            .toggleStyle(.switch)
+            .toggleStyle(AppToggleStyle())
             .controlSize(.mini)
             .help("BGMだけを分離せず，動画内の音声全体をBGM音量の目安として比較します．大きい動画だけを減衰するため，音割れを防げます．")
 
@@ -540,14 +540,14 @@ struct VariantSwitchPlayerView: View {
                 Text("BGMの拍に合わせる")
                     .font(.appCaption.weight(.semibold))
             }
-            .toggleStyle(.switch)
+            .toggleStyle(AppToggleStyle())
             .controlSize(.mini)
             .disabled(!viewModel.isAutoSwitching)
             .help("拍とは音楽の一定の脈，小節とは通常4拍をまとめた区切りです．BPMは1分間の拍数を表します．")
 
             if viewModel.synchronizesSwitchesToBeats {
                 HStack(spacing: 4) {
-                    Picker(
+                    AppChoicePicker(
                         "切り替え",
                         selection: Binding(
                             get: { viewModel.switchQuarterBeats },
@@ -567,7 +567,7 @@ struct VariantSwitchPlayerView: View {
                         }
                     }
                     .labelsHidden()
-                    .pickerStyle(.segmented)
+
                     .controlSize(.small)
                     .fixedSize()
 
@@ -605,7 +605,7 @@ struct VariantSwitchPlayerView: View {
         label: String,
         set: @escaping (Double) -> Void
     ) -> some View {
-        Stepper(
+        AppNumberStepper(
             onIncrement: {
                 set(
                     VariantSwitchSettings.adjustedInterval(

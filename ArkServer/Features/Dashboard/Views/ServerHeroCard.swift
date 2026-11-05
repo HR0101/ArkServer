@@ -63,7 +63,7 @@ struct ServerHeroCard: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(AppActionButtonStyle())
             .tint(NeomorphicTheme.ink)
         .accessibilityLabel("サーバーを停止")
       } else {
@@ -73,7 +73,7 @@ struct ServerHeroCard: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(AppActionButtonStyle(isPrimary: true))
         .accessibilityLabel("サーバーを開始")
       }
     }
@@ -103,7 +103,7 @@ struct ServerHeroCard: View {
               Label("開く", systemImage: "arrow.up.forward.app")
                 .font(.appBodyStrong)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(AppActionButtonStyle())
             .tint(NeomorphicTheme.ink)
             .help("このMacのブラウザで接続先を開く")
           }

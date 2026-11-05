@@ -82,7 +82,7 @@ struct SlideshowPlayerView: View {
                     .keyboardShortcut(.cancelAction)
                 Button("開始") { startGeneration() }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(AppActionButtonStyle(isPrimary: true))
             }
         }
         .padding(40)

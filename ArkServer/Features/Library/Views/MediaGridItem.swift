@@ -179,7 +179,7 @@ struct MediaGridItem: View {
         .onTapGesture(count: 1) {
             onSingleTap(NSApp.currentEvent?.modifierFlags ?? [])
         }
-        .contextMenu {
+        .appContextMenu {
             Button("開く") { onOpen() }
             if video.mediaType == .video, !isTrashView, let onAnalyzeScenes {
                 Button("シーン抽出") { onAnalyzeScenes() }
@@ -193,7 +193,7 @@ struct MediaGridItem: View {
                 Button("完全に削除…", role: .destructive) { showDeleteConfirmation = true }
             } else {
                 Button(video.isFavorite ? "お気に入りから外す" : "お気に入りに追加") { onToggleFavorite() }
-                Menu("アルバムに移動") {
+                AppChoiceMenu("アルバムに移動") {
                     ForEach(moveTargetAlbums) { album in
                         Button(album.name) { onMoveToAlbum(album.id) }
                     }

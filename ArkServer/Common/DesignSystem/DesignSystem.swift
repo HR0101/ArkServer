@@ -416,7 +416,7 @@ struct SettingToggleRow: View {
             Spacer(minLength: 12)
             Toggle("", isOn: $isOn)
                 .labelsHidden()
-                .toggleStyle(.switch)
+                .toggleStyle(AppToggleStyle())
                 .controlSize(.small)
         }
         .contentShape(Rectangle())

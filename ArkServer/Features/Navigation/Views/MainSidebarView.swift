@@ -106,7 +106,7 @@ struct MainSidebarView: View {
                 .background(GlassCardSurface())
             }
         }
-        .alert("エクスポート完了", isPresented: $showSidebarExportResultAlert) {
+        .appAlert("エクスポート完了", isPresented: $showSidebarExportResultAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(sidebarExportResultMessage)
@@ -114,7 +114,7 @@ struct MainSidebarView: View {
         .onDrop(of: [.fileURL], isTargeted: $isSidebarTargeted) { providers in
             handleDropOnSidebar(providers: providers)
         }
-        .alert("異なるメディアタイプの混在", isPresented: $showSidebarMixedContentAlert) {
+        .appAlert("異なるメディアタイプの混在", isPresented: $showSidebarMixedContentAlert) {
             Button("動画アルバムとして作成") {
                 if let url = pendingSidebarFolderURL {
                     Task { await dataManager.importFolder(folderURL: url, as: .video); pendingSidebarFolderURL = nil }
@@ -361,7 +361,7 @@ struct MainSidebarView: View {
         .sheet(isPresented: $isShowingAddAlbumSheet) {
             addAlbumSheet
         }
-        .confirmationDialog(
+        .appConfirmationPanel(
             "アルバムの削除",
             isPresented: albumDeletionDialogBinding,
             titleVisibility: .visible,
@@ -385,14 +385,14 @@ struct MainSidebarView: View {
         } message: { request in
             Text(deletionMessage(for: request))
         }
-        .alert("新規フォルダを作成", isPresented: $isShowingCreateFolderFromSelectionAlert) {
+        .appAlert("新規フォルダを作成", isPresented: $isShowingCreateFolderFromSelectionAlert) {
             TextField("フォルダ名", text: $newFolderNameForSelection)
             Button("作成", action: createFolderFromSelection)
             Button("キャンセル", role: .cancel) { newFolderNameForSelection = "" }
         } message: {
             Text("選択した\(selectedAlbumIDs.count)件のアルバムをこのフォルダの中に移動します．")
         }
-        .alert("新規アルバムに取り込む", isPresented: $isShowingSidebarFileImportAlbumNameAlert) {
+        .appAlert("新規アルバムに取り込む", isPresented: $isShowingSidebarFileImportAlbumNameAlert) {
             TextField("アルバム名", text: $newAlbumNameForSidebarFileImport)
             Button("作成して取り込む", action: importSidebarDroppedFiles)
             Button("キャンセル", role: .cancel) { pendingSidebarFileURLs = []; newAlbumNameForSidebarFileImport = "" }
@@ -591,7 +591,7 @@ struct MainSidebarView: View {
         }
         .buttonStyle(.plain)
         .draggable(AlbumDragPayload(albumIDs: [album.id], sourceFolderPath: nil))
-        .contextMenu {
+        .appContextMenu {
             Button("フォルダにエクスポート…") {
                 exportAlbums(albumIDs: [album.id])
             }
@@ -629,6 +629,25 @@ struct MainSidebarView: View {
             return AnyView(
                 VStack(alignment: .leading, spacing: 2) {
                     folderRowLabel(node, isPhotoTree: isPhotoTree)
+                        .appContextMenu {
+                            if let album = node.album, album.linkedFolderPath != nil || album.linkedFolderBookmarkData != nil {
+                                Button("紐づけフォルダを更新") {
+                                    rescanLinkedFolder(albumID: album.id)
+                                }
+                            } else {
+                                Button("フォルダを紐づけ…") {
+                                    linkFolderToNode(node, isPhotoTree: isPhotoTree)
+                                }
+                            }
+                            Divider()
+                            Button("フォルダにエクスポート…") {
+                                exportAlbums(albumIDs: viewModel.albumIDs(in: node))
+                            }
+                            Divider()
+                            Button("削除", role: .destructive) {
+                                requestAlbumDeletion(albumIDs: viewModel.albumIDs(in: node))
+                            }
+                        }
 
                     if expandedFolderIDs.contains(key) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -643,25 +662,7 @@ struct MainSidebarView: View {
                         .padding(.leading, 14)
                     }
                 }
-                .contextMenu {
-                    if let album = node.album, album.linkedFolderPath != nil || album.linkedFolderBookmarkData != nil {
-                        Button("紐づけフォルダを更新") {
-                            rescanLinkedFolder(albumID: album.id)
-                        }
-                    } else {
-                        Button("フォルダを紐づけ…") {
-                            linkFolderToNode(node, isPhotoTree: isPhotoTree)
-                        }
-                    }
-                    Divider()
-                    Button("フォルダにエクスポート…") {
-                        exportAlbums(albumIDs: viewModel.albumIDs(in: node))
-                    }
-                    Divider()
-                    Button("削除", role: .destructive) {
-                        requestAlbumDeletion(albumIDs: viewModel.albumIDs(in: node))
-                    }
-                }
+
             )
         }
     }
@@ -1020,7 +1021,7 @@ struct MainSidebarView: View {
                     newAlbumName = ""
                     newAlbumType = .video
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(AppActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(newAlbumName.isEmpty || newAlbumName == LibraryViewModel.allVideosAlbumName || newAlbumName == LibraryViewModel.allPhotosAlbumName)
             }
@@ -1032,7 +1033,7 @@ struct MainSidebarView: View {
                 Label("フォルダをインポートして作成", systemImage: "folder.badge.plus")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(AppActionButtonStyle())
             .help("フォルダを選ぶと，そのフォルダ名でアルバムを作成し中身を一括インポートします")
         }
         .padding(24)

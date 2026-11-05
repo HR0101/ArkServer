@@ -368,7 +368,7 @@ struct SceneExtractionTutorialView: View {
         TextField("用語を検索", text: $searchText)
           .textFieldStyle(.roundedBorder)
 
-        Picker("カテゴリ", selection: $selectedCategory) {
+        AppChoicePicker("カテゴリ", selection: $selectedCategory) {
           ForEach(SceneExtractionGlossaryCategory.allCases) { category in
             Text(category.rawValue).tag(category)
           }

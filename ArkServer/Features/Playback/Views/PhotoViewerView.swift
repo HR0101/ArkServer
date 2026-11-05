@@ -130,7 +130,7 @@ struct PhotoViewerView: View {
             hideFilmstripTask?.cancel()
         }
         .onKeyPress(phases: .down, action: handleKeyPress)
-        .confirmationDialog(
+        .appConfirmationPanel(
             "削除方法を選んでください",
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible

@@ -243,7 +243,7 @@ struct AlbumDetailView: View {
             // 見分けがつかないため，名前付きの1つのメニューにまとめる。
             ToolbarItem(placement: .primaryAction) {
                 if hasOrganizeTools {
-                    Menu {
+                    AppChoiceMenu {
                         // 重複チェックはアルバム単位でのみ意味を持つ（すべての動画/画像には全アルバムのメディアが
                         // 集まっているため、ここで実行すると別アルバム同士のメディアまで重複扱いになってしまう）。
                         if canRemoveItemsFromCurrentAlbum {
@@ -302,7 +302,7 @@ struct AlbumDetailView: View {
             // ランダム同時再生（本数を選ぶと、このアルバムからその数だけ無作為に選んで並べる）
             ToolbarItem(placement: .primaryAction) {
                 if videoItems.count >= 2 {
-                    Menu {
+                    AppChoiceMenu {
                         ForEach(2...min(9, videoItems.count), id: \.self) { count in
                             Button("\(count)本") {
                                 startMultiPlayback(Array(videoItems.shuffled().prefix(count)))
@@ -346,7 +346,7 @@ struct AlbumDetailView: View {
                 // 複数選択時の再生方法は4種類あり，アイコンだけを並べると見分けにくいので1つのメニューにまとめる。
                 ToolbarItem(placement: .primaryAction) {
                     if selectedItems.count >= 2 {
-                        Menu {
+                        AppChoiceMenu {
                             Button {
                                 startMultiPlayback(selectedItems)
                             } label: {
@@ -434,7 +434,7 @@ struct AlbumDetailView: View {
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             return handleDrop(providers: providers)
         }
-        .alert("異なるメディアタイプの混在", isPresented: $showMixedContentAlert) {
+        .appAlert("異なるメディアタイプの混在", isPresented: $showMixedContentAlert) {
             Button("現在のアルバムのタイプ (\(album.type.displayName)) としてインポート") {
                 if let url = pendingFolderURL {
                     Task {
@@ -452,17 +452,17 @@ struct AlbumDetailView: View {
         } message: {
             Text("\(mixedContentInfo)\n指定したタイプ (\(album.type.displayName)) 以外のファイルは無視されます．")
         }
-        .alert("重複チェック完了", isPresented: $showDuplicateCheckResultAlert) {
+        .appAlert("重複チェック完了", isPresented: $showDuplicateCheckResultAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(duplicateCheckResultMessage)
         }
-        .alert("エクスポート完了", isPresented: $showExportResultAlert) {
+        .appAlert("エクスポート完了", isPresented: $showExportResultAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(exportResultMessage)
         }
-        .alert("新規アルバムに移動", isPresented: $showMoveToNewAlbumAlert) {
+        .appAlert("新規アルバムに移動", isPresented: $showMoveToNewAlbumAlert) {
             TextField("アルバム名", text: $newAlbumNameForMove)
             Button("作成して移動") {
                 let name = newAlbumNameForMove.trimmingCharacters(in: .whitespaces)
@@ -487,7 +487,7 @@ struct AlbumDetailView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                Stepper("分割数: \(splitCount)", value: $splitCount, in: 2...9)
+                AppNumberStepper("分割数: \(splitCount)", value: $splitCount, in: 2...9)
                     .frame(width: 200)
                 Text("動画を\(splitCount)等分して\(splitCount)画面で同時再生します")
                     .font(.appCaption)
@@ -502,7 +502,7 @@ struct AlbumDetailView: View {
                         }
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(AppActionButtonStyle(isPrimary: true))
                 }
             }
             .padding(30)
@@ -785,7 +785,7 @@ struct AlbumDetailView: View {
         Text("「\(searchText)」に一致するタイトルは見つかりませんでした．")
       } actions: {
         Button("検索を解除") { searchText = "" }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(AppActionButtonStyle(isPrimary: true))
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

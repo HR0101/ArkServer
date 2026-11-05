@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		25959AC32E97F6E7003FA43E /* Swifter in Frameworks */ = {isa = PBXBuildFile; productRef = 25959AC22E97F6E7003FA43E /* Swifter */; };
 		25959AD32E98000000000012 /* MediaServerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 25959AD22E98000000000011 /* MediaServerKit */; };
+		25959AD72E98000000000023 /* VoiceSeparation in Frameworks */ = {isa = PBXBuildFile; productRef = 25959AD52E98000000000021 /* VoiceSeparation */; };
+		25959AD82E98000000000024 /* VoiceSeparationSoundAnalysis in Frameworks */ = {isa = PBXBuildFile; productRef = 25959AD62E98000000000022 /* VoiceSeparationSoundAnalysis */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +74,8 @@
 			files = (
 				25959AC32E97F6E7003FA43E /* Swifter in Frameworks */,
 				25959AD32E98000000000012 /* MediaServerKit in Frameworks */,
+				25959AD72E98000000000023 /* VoiceSeparation in Frameworks */,
+				25959AD82E98000000000024 /* VoiceSeparationSoundAnalysis in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -142,6 +146,8 @@
 			packageProductDependencies = (
 				25959AC22E97F6E7003FA43E /* Swifter */,
 				25959AD22E98000000000011 /* MediaServerKit */,
+				25959AD52E98000000000021 /* VoiceSeparation */,
+				25959AD62E98000000000022 /* VoiceSeparationSoundAnalysis */,
 			);
 			productName = ArkServer;
 			productReference = 25959A8D2E97F5E5003FA43E /* ArkServer.app */;
@@ -228,6 +234,7 @@
 			packageReferences = (
 				25959AC02E97F6CD003FA43E /* XCRemoteSwiftPackageReference "swifter" */,
 				25959AD12E98000000000010 /* XCLocalSwiftPackageReference "Packages/MediaServerKit" */,
+				25959AD42E98000000000020 /* XCLocalSwiftPackageReference "Packages/VoiceSeparationKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 25959A8E2E97F5E5003FA43E /* Products */;
@@ -617,6 +624,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/MediaServerKit;
 		};
+		25959AD42E98000000000020 /* XCLocalSwiftPackageReference "Packages/VoiceSeparationKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/VoiceSeparationKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -640,6 +651,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 25959AD12E98000000000010 /* XCLocalSwiftPackageReference "Packages/MediaServerKit" */;
 			productName = MediaServerKit;
+		};
+		25959AD52E98000000000021 /* VoiceSeparation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 25959AD42E98000000000020 /* XCLocalSwiftPackageReference "Packages/VoiceSeparationKit" */;
+			productName = VoiceSeparation;
+		};
+		25959AD62E98000000000022 /* VoiceSeparationSoundAnalysis */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 25959AD42E98000000000020 /* XCLocalSwiftPackageReference "Packages/VoiceSeparationKit" */;
+			productName = VoiceSeparationSoundAnalysis;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

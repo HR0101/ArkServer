@@ -93,7 +93,7 @@ struct VariantVideoView: View {
                 .font(.appCaption)
                 .foregroundStyle(.secondary)
             Spacer()
-            Picker(
+            AppChoicePicker(
                 "探索方法",
                 selection: Binding(
                     get: { model.searchMode },
@@ -103,7 +103,7 @@ struct VariantVideoView: View {
                 Text("通常差分").tag(VariantVideoViewModel.SearchMode.normal)
                 Text("一部一致").tag(VariantVideoViewModel.SearchMode.partial)
             }
-            .pickerStyle(.segmented)
+
             .tint(NeomorphicTheme.ink)
             .frame(width: 190)
             Button {
@@ -226,7 +226,7 @@ struct VariantVideoView: View {
                 )
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(AppActionButtonStyle(isPrimary: true))
             .controlSize(.small)
             .disabled(!isPlayable)
             .help(isPlayable
@@ -282,7 +282,7 @@ struct VariantVideoView: View {
                 HStack(spacing: 10) {
                     Text("最小尺差")
                         .font(.appCaption)
-                    Stepper(
+                    AppNumberStepper(
                         value: $model.minimumPartialDurationDifference,
                         in: 1...120,
                         step: 1

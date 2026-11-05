@@ -383,6 +383,42 @@ struct MusicVideoTuningPreferencesTests {
   }
 
   @Test
+  func lookTuningSavedBeforeSourceAudioStillLoadsWithItOff() throws {
+    let legacy = #"{"cutStyle":"standard","lookTuning":{"fitMode":"fit","transition":"crossfade","fadeSeconds":1}}"#
+    let decoded = try JSONDecoder().decode(MusicVideoPreferences.self, from: Data(legacy.utf8))
+    #expect(decoded.lookTuning.fitMode == .fit)
+    #expect(decoded.lookTuning.transition == .crossfade)
+    #expect(decoded.lookTuning.fadeSeconds == 1)
+    #expect(decoded.lookTuning.sourceAudio == .off)
+    #expect(decoded.lookTuning.sourceParts == .all)
+  }
+
+  @Test
+  func theEarlierVoiceSettingIsReadAsTheMatchingParts() throws {
+    let removed = #"{"lookTuning":{"sourceAudio":"medium","sourceVoice":"remove"}}"#
+    let decoded = try JSONDecoder().decode(MusicVideoPreferences.self, from: Data(removed.utf8))
+    #expect(decoded.lookTuning.sourceParts == [.music, .effects])
+    let kept = #"{"lookTuning":{"sourceAudio":"medium","sourceVoice":"keep"}}"#
+    #expect(try JSONDecoder().decode(MusicVideoPreferences.self, from: Data(kept.utf8)).lookTuning.sourceParts == .all)
+  }
+
+  @Test
+  func partsAreSavedAsNamesAndEmptyMeansNothing() throws {
+    var look = MusicVideoLookTuning()
+    look.sourceParts = [.voice, .effects]
+    let data = try JSONEncoder().encode(look)
+    let text = try #require(String(data: data, encoding: .utf8))
+    #expect(text.contains(#""sourceParts":["voice","effects"]"#), "名前の並びで保存する（\(text)）")
+    #expect(try JSONDecoder().decode(MusicVideoLookTuning.self, from: data).sourceParts == [.voice, .effects])
+
+    look.sourceParts = []
+    #expect(try JSONDecoder().decode(MusicVideoLookTuning.self, from: JSONEncoder().encode(look)).sourceParts.isEmpty)
+    #expect(SourceAudioParts.all.needsSeparation == false, "全部残すなら、分けない")
+    #expect(SourceAudioParts([]).needsSeparation == false, "何も残さないなら、分ける必要もない")
+    #expect(SourceAudioParts([.voice]).needsSeparation)
+  }
+
+  @Test
   func tuningSurvivesASaveAndLoad() throws {
     var preferences = MusicVideoPreferences()
     preferences.cutTuning.setMaximum(3.0)
@@ -392,6 +428,8 @@ struct MusicVideoTuningPreferencesTests {
     preferences.lookTuning.fitMode = .fit
     preferences.lookTuning.transition = .crossfade
     preferences.lookTuning.fadeSeconds = 1
+    preferences.lookTuning.sourceAudio = .medium
+    preferences.lookTuning.sourceParts = [.voice, .effects]
 
     let data = try JSONEncoder().encode(preferences)
     let decoded = try JSONDecoder().decode(MusicVideoPreferences.self, from: data)
@@ -456,6 +494,53 @@ private func audioRMS(of composed: MusicVideoComposition, from start: Double, le
   return count == 0 ? 0 : (sum / Double(count)).squareRoot()
 }
 
+/// 合成した音の、`start` 秒から `length` 秒を `block` 秒ごとに区切ったピーク(絶対値の最大)。時刻は区切りの先頭。
+private func audioPeaks(
+  of composed: MusicVideoComposition,
+  from start: Double,
+  length: Double,
+  block: Double
+) throws -> [(time: Double, peak: Float)] {
+  let sampleRate = 44_100.0
+  let reader = try AVAssetReader(asset: composed.composition)
+  let output = AVAssetReaderAudioMixOutput(
+    audioTracks: composed.composition.tracks(withMediaType: .audio),
+    audioSettings: [
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVLinearPCMBitDepthKey: 32,
+      AVLinearPCMIsFloatKey: true,
+      AVLinearPCMIsBigEndianKey: false,
+      AVLinearPCMIsNonInterleaved: false,
+      AVSampleRateKey: sampleRate,
+      AVNumberOfChannelsKey: 1
+    ]
+  )
+  output.audioMix = composed.audioMix
+  reader.add(output)
+  reader.timeRange = CMTimeRange(
+    start: CMTime(seconds: start, preferredTimescale: 600),
+    duration: CMTime(seconds: length, preferredTimescale: 600)
+  )
+  guard reader.startReading() else { throw reader.error ?? CocoaError(.fileReadUnknown) }
+
+  var samples: [Float] = []
+  var firstTime: Double?
+  while let buffer = output.copyNextSampleBuffer() {
+    if firstTime == nil { firstTime = CMSampleBufferGetPresentationTimeStamp(buffer).seconds }
+    guard let data = CMSampleBufferGetDataBuffer(buffer) else { continue }
+    let total = CMBlockBufferGetDataLength(data)
+    var bytes = [UInt8](repeating: 0, count: total)
+    CMBlockBufferCopyDataBytes(data, atOffset: 0, dataLength: total, destination: &bytes)
+    bytes.withUnsafeBytes { samples.append(contentsOf: $0.bindMemory(to: Float.self)) }
+  }
+
+  let step = max(1, Int(block * sampleRate))
+  let origin = firstTime ?? start
+  return stride(from: 0, to: samples.count - step, by: step).map { index in
+    (origin + Double(index) / sampleRate, samples[index..<index + step].map { abs($0) }.max() ?? 0)
+  }
+}
+
 @Suite(.serialized)
 struct MusicVideoLookCompositionTests {
   private let render = MusicVideoRenderSettings(width: 320, height: 180, framesPerSecond: 30)
@@ -491,11 +576,14 @@ struct MusicVideoLookCompositionTests {
     _ plan: CutPlan,
     fixture: Fixture,
     look: MusicVideoLookTuning,
-    audioStart: Double = 0
+    audioStart: Double = 0,
+    audioSeparator: SourceAudioSeparator? = nil
   ) async throws -> MusicVideoComposition {
     try await step("compose") {
-      try await MusicVideoComposer().makeComposition(
-        plan: plan, sourceURLs: fixture.urls, audioURL: fixture.music, render: render, look: look, audioStart: audioStart
+      let separator = audioSeparator ?? SourceAudioSeparator(cacheDirectory: fixture.directory.appendingPathComponent("voice-cache"))
+      return try await MusicVideoComposer().makeComposition(
+        plan: plan, sourceURLs: fixture.urls, audioURL: fixture.music, render: render, look: look,
+        audioStart: audioStart, audioSeparator: separator
       )
     }
   }
@@ -751,6 +839,326 @@ struct MusicVideoLookCompositionTests {
     #expect(try audioRMS(of: fromStart, from: 0.2, length: 0.5) < 0.01)
     #expect(try audioRMS(of: fromThree, from: 0.2, length: 0.5) > 0.1)
     #expect(abs(fromThree.duration - 4) < 0.05)
+  }
+
+  // MARK: 素材の元の音
+
+  /// 映像に、`samples`（モノラル 44.1kHz）の音を付けた動画を作る。素材の音が入ったかを調べるための素材。
+  private func makeTestVideoWithAudio(at url: URL, duration: Double, samples: [Float]) async throws {
+    let directory = url.deletingLastPathComponent()
+    let videoURL = directory.appendingPathComponent("silent-\(UUID().uuidString).mp4")
+    let audioURL = directory.appendingPathComponent("tone-\(UUID().uuidString).wav")
+    defer {
+      try? FileManager.default.removeItem(at: videoURL)
+      try? FileManager.default.removeItem(at: audioURL)
+    }
+    try await makeTestVideo(at: videoURL, duration: duration) { _ in 120 }
+    try writeMonoWAV(samples: samples, sampleRate: 44_100, to: audioURL)
+
+    let composition = AVMutableComposition()
+    for (sourceURL, mediaType) in [(videoURL, AVMediaType.video), (audioURL, .audio)] {
+      let asset = AVURLAsset(url: sourceURL)
+      let sourceTrack = try #require(try await asset.loadTracks(withMediaType: mediaType).first)
+      let track = try #require(composition.addMutableTrack(withMediaType: mediaType, preferredTrackID: kCMPersistentTrackID_Invalid))
+      try track.insertTimeRange(CMTimeRange(start: .zero, duration: try await asset.load(.duration)), of: sourceTrack, at: .zero)
+    }
+    let session = try #require(AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough))
+    try await session.export(to: url, as: .mov)
+  }
+
+  private func tone(duration: Double, from toneStart: Double = 0, amplitude: Float = 0.4) -> [Float] {
+    let sampleRate = 44_100.0
+    return (0..<Int(duration * sampleRate)).map { index in
+      let time = Double(index) / sampleRate
+      return time < toneStart ? 0 : amplitude * Float(sin(2 * Double.pi * 880 * time))
+    }
+  }
+
+  /// 音楽は無音にして、素材の音だけを測れるようにした素材一式。
+  /// `late` は 3 秒まで無音で、そのあと音がある。`toned` は最初から最後まで音がある。`silent` は音声トラックを持たない。
+  private struct SourceAudioFixture {
+    let fixture: Fixture
+    let late: UUID, toned: UUID, silent: UUID
+  }
+
+  private func makeSourceAudioFixture() async throws -> SourceAudioFixture {
+    let base = try await makeFixture()
+    try writeMonoWAV(samples: [Float](repeating: 0, count: 8 * 44_100), sampleRate: 44_100, to: base.music)
+    let lateURL = base.directory.appendingPathComponent("late.mov")
+    let tonedURL = base.directory.appendingPathComponent("toned.mov")
+    try await step("late video") { try await makeTestVideoWithAudio(at: lateURL, duration: 8, samples: tone(duration: 8, from: 3)) }
+    try await step("toned video") { try await makeTestVideoWithAudio(at: tonedURL, duration: 8, samples: tone(duration: 8)) }
+    let late = UUID(), toned = UUID()
+    let urls = base.urls.merging([late: lateURL, toned: tonedURL]) { current, _ in current }
+    return SourceAudioFixture(
+      fixture: Fixture(directory: base.directory, dark: base.dark, bright: base.bright, portrait: base.portrait, urls: urls, music: base.music),
+      late: late, toned: toned, silent: base.dark
+    )
+  }
+
+  @Test
+  func sourceAudioIsLeftOutByDefault() async throws {
+    let sources = try await makeSourceAudioFixture()
+    defer { try? FileManager.default.removeItem(at: sources.fixture.directory) }
+    let plan = CutPlan(cuts: [plannedCut(sources.toned, from: 1, at: 0, length: 3)], duration: 3)
+
+    let composed = try await compose(plan, fixture: sources.fixture, look: MusicVideoLookTuning())
+    #expect(composed.audioMix == nil)
+    #expect(composed.composition.tracks(withMediaType: .audio).count == 1, "音楽の1本だけ")
+    #expect(try audioRMS(of: composed, from: 0.5, length: 1.5) < 0.01)
+  }
+
+  @Test
+  func sourceAudioLevelsScaleTheOriginalSound() async throws {
+    let sources = try await makeSourceAudioFixture()
+    defer { try? FileManager.default.removeItem(at: sources.fixture.directory) }
+    let plan = CutPlan(cuts: [plannedCut(sources.toned, from: 1, at: 0, length: 3)], duration: 3)
+
+    var levels: [SourceAudioLevel: Double] = [:]
+    for level in SourceAudioLevel.allCases {
+      var look = MusicVideoLookTuning()
+      look.sourceAudio = level
+      let composed = try await compose(plan, fixture: sources.fixture, look: look)
+      levels[level] = try audioRMS(of: composed, from: 0.5, length: 1.5)
+    }
+    // 振幅 0.4 の正弦波の RMS は約 0.28。「音楽と同じ」はその大きさがそのまま出る。
+    let full = try #require(levels[.full])
+    #expect(full > 0.24 && full < 0.32)
+    #expect(try #require(levels[.off]) < 0.01)
+    #expect(try #require(levels[.low]) > 0.06 && levels[.low]! < 0.11)
+    #expect(try #require(levels[.medium]) > 0.14 && levels[.medium]! < 0.2)
+  }
+
+  @Test
+  func sourceAudioFollowsEachCutAndStaysInSyncWithTheVideo() async throws {
+    let sources = try await makeSourceAudioFixture()
+    defer { try? FileManager.default.removeItem(at: sources.fixture.directory) }
+    // 前半は素材の 0 秒から(無音の部分)、後半は 3.5 秒から(音のある部分)。
+    let plan = CutPlan(
+      cuts: [
+        plannedCut(sources.late, from: 0, at: 0, length: 1.5),
+        plannedCut(sources.late, from: 3.5, at: 1.5, length: 1.5)
+      ],
+      duration: 3
+    )
+
+    for transition in MusicVideoTransition.allCases {
+      var look = MusicVideoLookTuning()
+      look.sourceAudio = .full
+      look.transition = transition
+      let composed = try await compose(plan, fixture: sources.fixture, look: look)
+      #expect(try audioRMS(of: composed, from: 0.2, length: 1.0) < 0.01, "\(transition) 前半は無音")
+      #expect(try audioRMS(of: composed, from: 1.8, length: 1.0) > 0.24, "\(transition) 後半は素材の音")
+    }
+  }
+
+  @Test
+  func sourceAudioKeepsMusicAndSilentSourcesWorking() async throws {
+    let sources = try await makeSourceAudioFixture()
+    defer { try? FileManager.default.removeItem(at: sources.fixture.directory) }
+    // 音声トラックのない素材のカットは、素材の音がなく、音楽だけになる。
+    let plan = CutPlan(
+      cuts: [
+        plannedCut(sources.silent, from: 0, at: 0, length: 1.5),
+        plannedCut(sources.toned, from: 1, at: 1.5, length: 1.5)
+      ],
+      duration: 3
+    )
+    var look = MusicVideoLookTuning()
+    look.sourceAudio = .full
+    try writeSineWAV(to: sources.fixture.music, duration: 8)
+    let composed = try await compose(plan, fixture: sources.fixture, look: look)
+
+    #expect(composed.composition.tracks(withMediaType: .audio).count == 2, "音楽と素材の音")
+    let silentPart = try audioRMS(of: composed, from: 0.2, length: 1.0)
+    let tonedPart = try audioRMS(of: composed, from: 1.8, length: 1.0)
+    // 音楽（0.3 の正弦波）だけの所は約 0.21。そこに素材の音（約 0.28）が重なると大きくなる。
+    #expect(silentPart > 0.15 && silentPart < 0.27)
+    #expect(tonedPart > silentPart * 1.3)
+  }
+
+  @Test
+  func sourceAudioFadesWithTheRestOfTheVideo() async throws {
+    let sources = try await makeSourceAudioFixture()
+    defer { try? FileManager.default.removeItem(at: sources.fixture.directory) }
+    let plan = CutPlan(
+      cuts: [
+        plannedCut(sources.toned, from: 0, at: 0, length: 2.5),
+        plannedCut(sources.toned, from: 3, at: 2.5, length: 2.5)
+      ],
+      duration: 5
+    )
+    var look = MusicVideoLookTuning()
+    look.sourceAudio = .full
+    look.fadeSeconds = 1
+    let composed = try await compose(plan, fixture: sources.fixture, look: look)
+
+    let first = try audioRMS(of: composed, from: 0, length: 0.1)
+    let middle = try audioRMS(of: composed, from: 1.5, length: 0.5)
+    let last = try audioRMS(of: composed, from: 4.9, length: 0.1)
+    #expect(middle > 0.24)
+    #expect(first < middle * 0.25)
+    #expect(last < middle * 0.25)
+  }
+
+  @Test
+  func sourceAudioDipsBrieflyAtCutSeamsToAvoidClicks() async throws {
+    let sources = try await makeSourceAudioFixture()
+    defer { try? FileManager.default.removeItem(at: sources.fixture.directory) }
+    let plan = CutPlan(
+      cuts: [
+        plannedCut(sources.toned, from: 0, at: 0, length: 1.5),
+        plannedCut(sources.toned, from: 4, at: 1.5, length: 1.5)
+      ],
+      duration: 3
+    )
+    var look = MusicVideoLookTuning()
+    look.sourceAudio = .full
+    let composed = try await compose(plan, fixture: sources.fixture, look: look)
+
+    // つなぎ目（1.5 秒）の前後 0.03 秒だけが絞られ、その外側は素材の音のまま。
+    // 短い範囲ごとに読み直すと音声処理の単位に引きずられるので、一本の読み出しで波形を並べて調べる。
+    let peaks = try audioPeaks(of: composed, from: 1.3, length: 0.4, block: 0.002)
+    func peak(in range: ClosedRange<Double>) -> Float {
+      peaks.filter { range.contains($0.time) }.map(\.peak).min() ?? .infinity
+    }
+    #expect(peak(in: 1.30...1.465) > 0.35, "つなぎ目の手前は素材の音のまま")
+    #expect(peak(in: 1.535...1.70) > 0.35, "つなぎ目の先も素材の音のまま")
+    #expect(peak(in: 1.49...1.51) < 0.1, "つなぎ目の真ん中は絞られる")
+  }
+
+  /// macOS 標準の `say` で話し声を作り、44.1kHz モノラルのサンプルにして返す。作れない環境では nil。
+  private func spokenSamples(_ text: String, in directory: URL) throws -> [Float]? {
+    let say = URL(fileURLWithPath: "/usr/bin/say")
+    guard FileManager.default.isExecutableFile(atPath: say.path) else { return nil }
+    let url = directory.appendingPathComponent("speech-\(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let process = Process()
+    process.executableURL = say
+    process.arguments = ["-o", url.path, "--data-format=LEI16@44100", text]
+    try process.run()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return nil }
+    let file = try AVAudioFile(forReading: url)
+    let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44_100, channels: 1, interleaved: false))
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(file.length)))
+    try file.read(into: buffer)
+    return Array(UnsafeBufferPointer(start: try #require(buffer.floatChannelData)[0], count: Int(buffer.frameLength)))
+  }
+
+  @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: "/usr/bin/say"), "音声合成（say）が使える環境だけ"))
+  func choosingPartsKeepsOnlyTheSelectedSounds() async throws {
+    let base = try await makeFixture()
+    defer { try? FileManager.default.removeItem(at: base.directory) }
+    try writeMonoWAV(samples: [Float](repeating: 0, count: 8 * 44_100), sampleRate: 44_100, to: base.music)
+
+    let speech = try #require(try spokenSamples(
+      "Hello everyone, welcome back to the channel. Today we are going to build something really cool together.",
+      in: base.directory
+    ))
+    // 素材の音: 0.4 秒から効果音（雑音の衝撃）、3 秒から話し声。
+    var audio = [Float](repeating: 0, count: 14 * 44_100)
+    var seed: UInt64 = 99
+    for offset in 0..<Int(0.8 * 44_100) {
+      seed = seed &* 6364136223846793005 &+ 1442695040888963407
+      let noise = Float(seed >> 40) / Float(1 << 23) - 1
+      audio[Int(0.4 * 44_100) + offset] = 0.5 * noise * Float(exp(-Double(offset) / 44_100 / 0.2))
+    }
+    for (offset, sample) in speech.enumerated() where 3 * 44_100 + offset < audio.count { audio[3 * 44_100 + offset] += sample }
+    let sourceURL = base.directory.appendingPathComponent("talking.mov")
+    try await step("talking video") { try await makeTestVideoWithAudio(at: sourceURL, duration: 14, samples: audio) }
+    let talking = UUID()
+    let fixture = Fixture(
+      directory: base.directory, dark: base.dark, bright: base.bright, portrait: base.portrait,
+      urls: base.urls.merging([talking: sourceURL]) { current, _ in current }, music: base.music
+    )
+    // 前半は効果音だけの所、後半は話し声だけの所。
+    let plan = CutPlan(
+      cuts: [
+        plannedCut(talking, from: 0, at: 0, length: 2),
+        plannedCut(talking, from: 4, at: 2, length: 3)
+      ],
+      duration: 5
+    )
+
+    var keep = MusicVideoLookTuning()
+    keep.sourceAudio = .full
+    var remove = keep
+    remove.sourceParts = [.music, .effects]   // 声以外を残す
+    let kept = try await compose(plan, fixture: fixture, look: keep)
+    let removed = try await compose(plan, fixture: fixture, look: remove)
+
+    let keptEffect = try audioRMS(of: kept, from: 0.45, length: 0.6)
+    let removedEffect = try audioRMS(of: removed, from: 0.45, length: 0.6)
+    let keptSpeech = try audioRMS(of: kept, from: 2.3, length: 2.4)
+    let removedSpeech = try audioRMS(of: removed, from: 2.3, length: 2.4)
+    #expect(keptEffect > 0.05)
+    #expect(keptSpeech > 0.02)
+    // 声を除く処理はモノラルの素材をステレオで読み出すので、音量の絶対値は測り方で変わる（テストの測り方では約 +3dB）。
+    // そこで、声と効果音の比が、どれだけ変わったかで確かめる。
+    #expect(removedEffect > keptEffect * 0.7, "効果音だけの所は、削られない（\(keptEffect) → \(removedEffect)）")
+    let keptRatio = keptSpeech / keptEffect
+    let removedRatio = removedSpeech / removedEffect
+    #expect(removedRatio < keptRatio * 0.4, "効果音に対する話し声の大きさが 8dB 以上減る（\(keptRatio) → \(removedRatio)）")
+    #expect(abs(removed.duration - 5) < 0.05)
+
+    // 声だけ残す: 話し声の所は残り、効果音だけの所は、ほとんど消える。
+    var voiceOnly = keep
+    voiceOnly.sourceParts = [.voice]
+    let voiced = try await compose(plan, fixture: fixture, look: voiceOnly)
+    let voicedEffect = try audioRMS(of: voiced, from: 0.45, length: 0.6)
+    let voicedSpeech = try audioRMS(of: voiced, from: 2.3, length: 2.4)
+    // 測り方でモノラルの素材が約 +3dB に出るので、比べるのは、声を残した音どうし・声以外を残した音どうし。
+    #expect(voicedEffect < keptEffect * 0.2, "効果音だけの所は、ほとんど消える（\(keptEffect) → \(voicedEffect)）")
+    #expect(voicedSpeech > keptSpeech * 0.6, "話し声の所は残る（\(keptSpeech) → \(voicedSpeech)）")
+
+    // 同じ範囲をもう一度作るときは、保存した音を使い回す（保存ファイルが増えない）。
+    let cache = fixture.directory.appendingPathComponent("voice-cache")
+    let filesBefore = try FileManager.default.contentsOfDirectory(atPath: cache.path).count
+    _ = try await compose(plan, fixture: fixture, look: remove)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path).count == filesBefore)
+    #expect(filesBefore == 4, "カットの数 × 残す成分の組み合わせ（2通り）だけ保存される")
+  }
+
+  @Test
+  func partsSelectionDoesNothingWhileSourceAudioIsOff() async throws {
+    let sources = try await makeSourceAudioFixture()
+    defer { try? FileManager.default.removeItem(at: sources.fixture.directory) }
+    let plan = CutPlan(cuts: [plannedCut(sources.toned, from: 1, at: 0, length: 3)], duration: 3)
+
+    var look = MusicVideoLookTuning()
+    look.sourceAudio = .off
+    look.sourceParts = [.effects]
+    let composed = try await compose(plan, fixture: sources.fixture, look: look)
+    #expect(composed.audioMix == nil)
+    #expect(composed.composition.tracks(withMediaType: .audio).count == 1, "音楽の1本だけ")
+    #expect(!FileManager.default.fileExists(atPath: sources.fixture.directory.appendingPathComponent("voice-cache").path))
+  }
+
+  @Test
+  func sourceAudioExportsIntoTheMP4() async throws {
+    let sources = try await makeSourceAudioFixture()
+    defer { try? FileManager.default.removeItem(at: sources.fixture.directory) }
+    let plan = CutPlan(
+      cuts: [
+        plannedCut(sources.toned, from: 0, at: 0, length: 1.5),
+        plannedCut(sources.late, from: 3.5, at: 1.5, length: 1.5)
+      ],
+      duration: 3
+    )
+    var look = MusicVideoLookTuning()
+    look.sourceAudio = .medium
+    look.transition = .crossfade
+    look.fadeSeconds = 0.5
+    let composed = try await compose(plan, fixture: sources.fixture, look: look)
+
+    let output = sources.fixture.directory.appendingPathComponent("out/with-source-audio.mp4")
+    try await step("export") { try await MusicVideoComposer().export(composed, to: output) }
+
+    let asset = AVURLAsset(url: output)
+    #expect(try await asset.loadTracks(withMediaType: .video).count == 1)
+    #expect(try await asset.loadTracks(withMediaType: .audio).count == 1, "音楽と素材の音は1本に混ざる")
+    #expect(abs(try await asset.load(.duration).seconds - 3) < 0.2)
   }
 
   @Test

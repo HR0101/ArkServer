@@ -84,13 +84,15 @@ nonisolated struct MusicVideoComposer: Sendable {
   ///   - look: 画面の合わせ方・切り替え効果・フェード。既定(画面いっぱい・そのまま切り替え・フェードなし)では、
   ///     映像トラックを1本だけ使う。
   ///   - audioStart: 音楽ファイルの何秒目を、映像の 0 秒に合わせるか(曲の一部だけを使うとき)。
+  ///   - audioSeparator: 素材の音から一部の成分だけを残すとき(`look.sourceParts` が全部ではない)に使う。分けた音の保存先を持つ。
   func makeComposition(
     plan: CutPlan,
     sourceURLs: [UUID: URL],
     audioURL: URL,
     render: MusicVideoRenderSettings,
     look: MusicVideoLookTuning = MusicVideoLookTuning(),
-    audioStart: Double = 0
+    audioStart: Double = 0,
+    audioSeparator: SourceAudioSeparator = .standard
   ) async throws -> MusicVideoComposition {
     guard !plan.cuts.isEmpty else { throw MusicVideoComposerError.emptyPlan }
 
@@ -105,13 +107,34 @@ nonisolated struct MusicVideoComposer: Sendable {
       placement = try await placeSingleTrack(plan: plan, sourceURLs: sourceURLs, render: render, look: look, fade: fade, into: composition)
     }
 
-    let audioMix = try await addAudio(
+    // 音楽を先に入れる(音声トラックの先頭が音楽)。素材の音は、その上に重ねる。
+    var audioParameters: [AVMutableAudioMixInputParameters] = []
+    if let musicParameters = try await addAudio(
       from: audioURL,
       to: composition,
       duration: Self.time(plan.duration),
       startOffset: audioStart,
       fade: fade
-    )
+    ) {
+      audioParameters.append(musicParameters)
+    }
+    if let sourceParameters = try await addSourceAudio(
+      plan: plan,
+      sourceURLs: sourceURLs,
+      volume: look.sourceAudio.volume,
+      fade: fade,
+      parts: look.sourceParts,
+      audioSeparator: audioSeparator,
+      into: composition
+    ) {
+      audioParameters.append(sourceParameters)
+    }
+    var audioMix: AVAudioMix?
+    if !audioParameters.isEmpty {
+      let mix = AVMutableAudioMix()
+      mix.inputParameters = audioParameters
+      audioMix = mix
+    }
 
     // 音声のほうが長いときも、映像の指示が全体を覆うように、最後の区間を合成の終わりまで延ばす。
     var segments = placement.segments
@@ -443,14 +466,14 @@ nonisolated struct MusicVideoComposer: Sendable {
     )
   }
 
-  /// 音楽を映像の 0 秒に合わせて入れる。`fade` が 0 より大きければ、最初と最後で音量を 0↔1 に変える。
+  /// 音楽を映像の 0 秒に合わせて入れる。`fade` が 0 より大きければ、最初と最後で音量を 0↔1 に変える指定を返す。
   private func addAudio(
     from url: URL,
     to composition: AVMutableComposition,
     duration: CMTime,
     startOffset: Double,
     fade: Double
-  ) async throws -> AVAudioMix? {
+  ) async throws -> AVMutableAudioMixInputParameters? {
     let asset = AVURLAsset(url: url)
     guard let sourceTrack = try await asset.loadTracks(withMediaType: .audio).first else {
       throw MusicVideoComposerError.noAudioTrack
@@ -481,9 +504,191 @@ nonisolated struct MusicVideoComposer: Sendable {
       toEndVolume: 0,
       timeRange: CMTimeRange(start: CMTimeSubtract(length, fadeTime), duration: fadeTime)
     )
-    let mix = AVMutableAudioMix()
-    mix.inputParameters = [parameters]
-    return mix
+    return parameters
+  }
+
+  /// カットのつなぎ目の前後で、素材の音を 0 まで絞る時間(秒)。音が飛ぶ所で出る「ぷつっ」という雑音を防ぐ。
+  /// AVFoundation の音量は約 30ms より速く変えられない(これより短いと 0 まで下がりきらない)ので、その長さにする。
+  private static let sourceAudioSeam = 0.03
+
+  /// 各カットの素材の音を、映像と同じ位置に入れる。`volume` が 0 なら何も入れない。
+  ///
+  /// 映像と同じ素材の位置を使うので、クロスフェードでも映像と音は合ったまま。
+  /// 音声トラックを持たない素材のカットは、無音になる。
+  /// 最初と最後のフェード(`fade`)と、カットのつなぎ目の絞りが重ならないよう、フェードの間は絞りを入れない。
+  private func addSourceAudio(
+    plan: CutPlan,
+    sourceURLs: [UUID: URL],
+    volume: Float,
+    fade: Double,
+    parts: SourceAudioParts,
+    audioSeparator: SourceAudioSeparator,
+    into composition: AVMutableComposition
+  ) async throws -> AVMutableAudioMixInputParameters? {
+    // 音量が 0 か、残す成分が無ければ、素材の音は入れない。
+    guard volume > 0, !parts.isEmpty else { return nil }
+    guard let audioTrack = composition.addMutableTrack(
+      withMediaType: .audio,
+      preferredTrackID: kCMPersistentTrackID_Invalid
+    ) else {
+      throw MusicVideoComposerError.cannotCreateTrack
+    }
+
+    // 素材の音声トラックは、元のアセットが解放されると使えなくなるので、アセットごと持ち続ける。
+    struct SourceAudio {
+      let asset: AVURLAsset
+      let track: AVAssetTrack?
+      let audioRange: CMTimeRange
+      /// 映像側が素材の終わりに収めるときの基準。音も同じだけずらして、映像と音を合わせる。
+      let videoRange: CMTimeRange
+    }
+    var sources: [UUID: SourceAudio] = [:]
+
+    func loadedAudio(for videoID: UUID) async throws -> SourceAudio {
+      if let known = sources[videoID] { return known }
+      guard let url = sourceURLs[videoID] else { throw MusicVideoComposerError.missingSource(videoID) }
+      let asset = AVURLAsset(url: url)
+      let videoRange = try await asset.loadTracks(withMediaType: .video).first?.load(.timeRange)
+        ?? CMTimeRange(start: .zero, duration: .positiveInfinity)
+      let track = try await asset.loadTracks(withMediaType: .audio).first
+      let audioRange = try await track?.load(.timeRange) ?? .zero
+      let loaded = SourceAudio(asset: asset, track: track, audioRange: audioRange, videoRange: videoRange)
+      sources[videoID] = loaded
+      return loaded
+    }
+
+    let seam = Self.time(Self.sourceAudioSeam)
+    let total = plan.duration
+    let fadeTime = Self.time(fade)
+    let parameters = AVMutableAudioMixInputParameters(track: audioTrack)
+    parameters.setVolume(volume, at: .zero)
+
+    // 最初と最後のフェード。
+    if fade > 0 {
+      parameters.setVolumeRamp(fromStartVolume: 0, toEndVolume: volume, timeRange: CMTimeRange(start: .zero, duration: fadeTime))
+      parameters.setVolumeRamp(
+        fromStartVolume: volume,
+        toEndVolume: 0,
+        timeRange: CMTimeRange(start: CMTimeSubtract(Self.time(total), fadeTime), duration: fadeTime)
+      )
+    }
+
+    /// トラックに入れる音ひとつぶん。
+    struct Piece {
+      let sourceURL: URL
+      let track: AVAssetTrack
+      let sourceRange: CMTimeRange
+      let timelineStart: CMTime
+    }
+    var pieces: [Piece] = []
+
+    for (index, cut) in plan.cuts.enumerated() {
+      try Task.checkCancellation()
+      let source = try await loadedAudio(for: cut.videoID)
+
+      let start = Self.time(cut.timelineStart)
+      let end = Self.time(cut.timelineEnd)
+      let length = CMTimeSubtract(end, start)
+      guard length > .zero else { continue }
+
+      // 映像と同じ素材の位置を使う(素材の終わりを越えるときは、映像と同じだけ手前へずらす)。
+      var sourceStart = Self.time(cut.sourceStart)
+      if CMTimeAdd(sourceStart, length) > source.videoRange.end {
+        sourceStart = max(source.videoRange.start, CMTimeSubtract(source.videoRange.end, length))
+      }
+
+      if let track = source.track {
+        // 音声が映像より短い素材は、音のある範囲だけを入れる(残りは無音)。
+        let audioStart = max(sourceStart, source.audioRange.start)
+        let skipped = CMTimeSubtract(audioStart, sourceStart)
+        let available = min(CMTimeSubtract(length, skipped), CMTimeSubtract(source.audioRange.end, audioStart))
+        if available > .zero {
+          pieces.append(Piece(
+            sourceURL: source.asset.url, track: track,
+            sourceRange: CMTimeRange(start: audioStart, duration: available),
+            timelineStart: CMTimeAdd(start, skipped)
+          ))
+        }
+      }
+
+      // つなぎ目(カットの頭)の前後を一瞬だけ絞る。前後のカットが短すぎるときと、フェードの間は入れない。
+      guard index > 0 else { continue }
+      let previousLength = plan.cuts[index - 1].duration
+      let seamSeconds = Self.sourceAudioSeam
+      guard cut.duration > seamSeconds * 2, previousLength > seamSeconds * 2 else { continue }
+      let seamStart = cut.timelineStart - seamSeconds
+      let seamEnd = cut.timelineStart + seamSeconds
+      guard fade == 0 || (seamStart >= fade && seamEnd <= total - fade) else { continue }
+      parameters.setVolumeRamp(
+        fromStartVolume: volume,
+        toEndVolume: 0,
+        timeRange: CMTimeRange(start: CMTimeSubtract(start, seam), duration: seam)
+      )
+      parameters.setVolumeRamp(
+        fromStartVolume: 0,
+        toEndVolume: volume,
+        timeRange: CMTimeRange(start: start, duration: seam)
+      )
+    }
+
+    // 一部の成分だけを残すときは、使う範囲ごとに、その成分だけの音を作り、それを入れる。
+    guard parts.needsSeparation else {
+      for piece in pieces {
+        try audioTrack.insertTimeRange(piece.sourceRange, of: piece.track, at: piece.timelineStart)
+      }
+      return parameters
+    }
+    audioSeparator.trimCache()
+    let processed = try await separateAudio(from: pieces.map { ($0.sourceURL, $0.sourceRange) }, parts: parts, using: audioSeparator)
+    for (piece, url) in zip(pieces, processed) {
+      // 分けられなかった範囲は、選んでいない成分が混ざらないよう、無音にする。
+      guard let url else { continue }
+      let asset = AVURLAsset(url: url)
+      guard let track = try await asset.loadTracks(withMediaType: .audio).first else { continue }
+      let available = min(piece.sourceRange.duration, try await asset.load(.duration))
+      guard available > .zero else { continue }
+      try audioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: available), of: track, at: piece.timelineStart)
+    }
+    return parameters
+  }
+
+  /// 同時に分ける範囲の数。多すぎると、音の解析でメモリと CPU を使い切る。
+  private static let separationConcurrency = 4
+
+  /// 各範囲から、選んだ成分だけを残したファイルを作る。失敗した範囲は nil（キャンセルのときは投げ直す）。順序は入力と同じ。
+  private func separateAudio(
+    from ranges: [(url: URL, range: CMTimeRange)],
+    parts: SourceAudioParts,
+    using separator: SourceAudioSeparator
+  ) async throws -> [URL?] {
+    var results = [URL?](repeating: nil, count: ranges.count)
+    try await withThrowingTaskGroup(of: (Int, URL?).self) { group in
+      var next = 0
+      func addNext() {
+        guard next < ranges.count else { return }
+        let index = next
+        next += 1
+        let item = ranges[index]
+        group.addTask {
+          do {
+            let url = try await separator.audio(
+              source: item.url, start: item.range.start.seconds, duration: item.range.duration.seconds, parts: parts
+            )
+            return (index, url)
+          } catch is CancellationError {
+            throw CancellationError()
+          } catch {
+            return (index, nil)
+          }
+        }
+      }
+      for _ in 0..<Self.separationConcurrency { addNext() }
+      while let (index, url) = try await group.next() {
+        results[index] = url
+        addNext()
+      }
+    }
+    return results
   }
 
   /// 素材を画面に収める変換。向き（回転）も反映する。

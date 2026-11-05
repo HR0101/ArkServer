@@ -80,6 +80,7 @@ struct ContentView: View {
             WindowChromeConfigurator(isToolbarHidden: isToolbarHidden)
         )
         .tint(NeomorphicTheme.accent)
+        .toggleStyle(AppToggleStyle())
         .preferredColorScheme(appSettings.neomorphicDarkBase ? .dark : .light)
         .environmentObject(playbackCoordinator)
         .environmentObject(viewModel.remotePlaybackSession)
@@ -96,7 +97,7 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.isShowingAccessLog) {
             AccessLogView(webServerManager: viewModel.webServerManager)
         }
-        .alert(
+        .appAlert(
             "ファイル操作の結果",
             isPresented: Binding(
                 get: { dataManager.mediaDeletionNotice != nil },
@@ -109,7 +110,7 @@ struct ContentView: View {
         } message: {
             Text(dataManager.mediaDeletionNotice ?? "")
         }
-        .alert(
+        .appAlert(
             "シーン抽出を開始できません",
             isPresented: Binding(
                 get: { viewModel.sceneExtractionNavigationError != nil },

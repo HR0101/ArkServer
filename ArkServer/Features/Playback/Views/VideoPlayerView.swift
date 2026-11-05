@@ -949,18 +949,18 @@ struct VideoPlayerView: View {
 
     /// 再生速度と自動再生。ボタンを並べるには数が多いのでメニューにまとめる。
     private var playbackOptionsMenu: some View {
-        Menu {
-            Picker("再生速度", selection: rateBinding) {
+        AppChoiceMenu {
+            AppChoicePicker("再生速度", selection: rateBinding) {
                 ForEach(PlaybackSettings.availableRates, id: \.self) { value in
                     Text(PlaybackSettings.label(forRate: value)).tag(value)
                 }
             }
-            .pickerStyle(.inline)
+
 
             // トラックが1つしかない動画にまで選択 UI を出しても選ぶものがない。
             if viewModel.audioTracks.count > 1 {
                 Divider()
-                Picker("音声", selection: audioTrackBinding) {
+                AppChoicePicker("音声", selection: audioTrackBinding) {
                     ForEach(viewModel.audioTracks) { track in
                         Text(track.displayName).tag(track.index)
                     }
@@ -969,7 +969,7 @@ struct VideoPlayerView: View {
 
             if !viewModel.subtitleTracks.isEmpty {
                 Divider()
-                Picker("字幕", selection: subtitleTrackBinding) {
+                AppChoicePicker("字幕", selection: subtitleTrackBinding) {
                     ForEach(viewModel.subtitleTracks) { track in
                         Text(track.displayName).tag(track.index)
                     }
@@ -992,7 +992,7 @@ struct VideoPlayerView: View {
             .padding(.horizontal, 6)
             .frame(height: 30)
         }
-        .menuStyle(.borderlessButton)
+
         // メニューの文字がアクセントの青になるのを避け、他のボタンと同じ白にそろえる。
         .tint(PlayerChrome.icon)
         .fixedSize()
@@ -1250,56 +1250,350 @@ struct LibraryTourMenu: View {
   let videos: [VideoItem]
   let dataManager: LibraryViewModel
   let beforePlay: () -> Void
+  @State private var isPanelPresented = false
+
+  var body: some View {
+    Button { isPanelPresented.toggle() } label: {
+      HStack(spacing: 8) {
+        Label("お楽しみ再生", systemImage: "play.rectangle.on.rectangle")
+        Image(systemName: "chevron.down")
+          .font(.system(size: 8, weight: .medium))
+      }
+    }
+    .buttonStyle(.quiet)
+    .accessibilityIdentifier("library.tour.open")
+    .help("チャンネル・気分ミックス・時間指定・ストック・プレビュー巡回・シーン再生")
+    .disabled(videos.isEmpty)
+    .popover(isPresented: $isPanelPresented, arrowEdge: .bottom) {
+      LibraryTourSelectionPanel(videos: videos, dataManager: dataManager, beforePlay: beforePlay) {
+        isPanelPresented = false
+      }
+    }
+  }
+}
+
+/// パネル内の移動は表示元のツールバーから独立させ，項目を開いてもパネルを保つ。
+private struct LibraryTourSelectionPanel: View {
+  let videos: [VideoItem]
+  let dataManager: LibraryViewModel
+  let beforePlay: () -> Void
+  let close: () -> Void
   @EnvironmentObject private var watchState: WatchStateStore
   @EnvironmentObject private var coordinator: PlaybackCoordinator
   @State private var errorMessage: String?
+  @State private var panelPage: PanelPage = .overview
+  @FocusState private var focusedOption: Int?
+
+  private enum PanelPage {
+    case overview
+    case mood
+    case duration
+  }
+
+  private static let durationChoices = [5, 10, 15, 30]
+  private static let secondsPerMinute = 60
+  private static let panelWidth: CGFloat = 360
+
+  private var optionCount: Int {
+    switch panelPage {
+    case .overview: return 7
+    case .mood: return PlaybackTourSession.Mood.allCases.count
+    case .duration: return Self.durationChoices.count
+    }
+  }
+
+  private var panelTitle: String {
+    switch panelPage {
+    case .overview: return "お楽しみ再生"
+    case .mood: return "気分でミックス"
+    case .duration: return "時間ぴったり再生"
+    }
+  }
+
+  private var panelSubtitle: String {
+    switch panelPage {
+    case .overview: return "いつもの動画を，違う楽しみ方で"
+    case .mood: return "表示中の動画から，気分に合うものを"
+    case .duration: return "動画の再生時間の合計を合わせます"
+    }
+  }
+
+  private var panelHeight: CGFloat {
+    switch panelPage {
+    case .overview: return 548
+    case .mood: return 316
+    case .duration: return 328
+    }
+  }
 
   var body: some View {
-    Menu {
-      Section("新しい楽しみ方") {
-        Button("マイチャンネル（全動画アルバム）") {
-          start { try PlaybackTourSession.channelSession(albums: dataManager.albums, videos: dataManager.videos) }
-        }
-        Menu("気分でミックス") {
-          ForEach(PlaybackTourSession.Mood.allCases, id: \.rawValue) { mood in
-            Button(mood.rawValue) {
-              start {
-                try PlaybackTourSession.mix(videos: videos, mood: mood,
-                  seenIDs: Set(watchState.historyOrder).union(watchState.progress.keys))
-              }
-            }
+    VStack(spacing: 0) {
+      panelHeader
+      Divider().overlay(NeomorphicTheme.separator)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          switch panelPage {
+          case .overview: overviewOptions
+          case .mood: moodOptions
+          case .duration: durationOptions
           }
         }
-        Menu("時間ぴったり再生") {
-          ForEach([5, 10, 15, 30], id: \.self) { minutes in
-            Button("\(minutes)分") {
-              start { try PlaybackTourSession.timed(videos: videos, seconds: Double(minutes * 60)) }
-            }
-          }
-        }
-        Button("ストックした場面を再生") {
-          start { try PlaybackTourSession.highlights(videos: videos, urlForVideo: dataManager.fileURL) }
-        }
+        .padding(12)
       }
-      Section("プレビュー巡回") {
-        Button("15秒ずつ試聴") { startPreview(seconds: 15) }
-        Button("30秒ずつ試聴") { startPreview(seconds: 30) }
+      .scrollBounceBehavior(.basedOnSize)
+      Divider().overlay(NeomorphicTheme.separator)
+      HStack(spacing: 4) {
+        Text("↑↓ 選択")
+        Text("·")
+        Text("Enter 決定")
+        Text("·")
+        Text("Esc 閉じる")
+        Spacer(minLength: 0)
       }
-      Section("採用した区間を楽しむ") {
-        Button("シーンシャッフル") {
-          start { try PlaybackTourSession.scenes(videos: videos, urlForVideo: dataManager.fileURL) }
-        }
-      }
-    } label: {
-      Label("お楽しみ再生", systemImage: "play.rectangle.on.rectangle")
+      .font(.appMicro)
+      .foregroundStyle(NeomorphicTheme.muted)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
     }
-    .help("チャンネル・気分ミックス・時間指定・ストック・プレビュー巡回・シーン再生")
-    .disabled(videos.isEmpty)
-    .alert("再生を開始できません", isPresented: Binding(
+    .frame(width: Self.panelWidth, height: panelHeight)
+    .background(NeomorphicTheme.canvas)
+    .foregroundStyle(NeomorphicTheme.ink)
+    .tint(NeomorphicTheme.accent)
+    .environment(\.colorScheme, NeomorphicTheme.isDarkBase ? .dark : .light)
+    .background(LibraryTourPanelFocusBridge { focusedOption = 0 })
+    .onKeyPress(.downArrow) { moveFocus(by: 1) }
+    .onKeyPress(.upArrow) { moveFocus(by: -1) }
+    .onKeyPress(.return) {
+      guard let focusedOption else { return .ignored }
+      activateOption(focusedOption)
+      return .handled
+    }
+    .onKeyPress(.leftArrow) {
+      guard panelPage != .overview else { return .ignored }
+      returnToOverview()
+      return .handled
+    }
+    .onKeyPress(.escape) {
+      close()
+      return .handled
+    }
+    .appAlert("再生を開始できません", isPresented: Binding(
       get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
     )) {
       Button("閉じる", role: .cancel) { errorMessage = nil }
     } message: { Text(errorMessage ?? "") }
+  }
+
+  private var panelHeader: some View {
+    HStack(spacing: 12) {
+      if panelPage != .overview {
+        Button(action: returnToOverview) {
+          Image(systemName: "chevron.left")
+            .font(.system(size: 12, weight: .medium))
+            .frame(width: 28, height: 28)
+            .background(NeomorphicTheme.control, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help("再生方法の一覧へ戻る")
+        .accessibilityLabel("再生方法の一覧へ戻る")
+        .accessibilityIdentifier("library.tour.back")
+      }
+      VStack(alignment: .leading, spacing: 4) {
+        Text(panelTitle)
+          .font(.appBodyStrong)
+          .accessibilityAddTraits(.isHeader)
+        Text(panelSubtitle)
+          .font(.appMicro)
+          .foregroundStyle(NeomorphicTheme.muted)
+      }
+      Spacer(minLength: 0)
+      Button(action: close) {
+        Image(systemName: "xmark")
+          .font(.system(size: 10, weight: .medium))
+          .frame(width: 24, height: 24)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(NeomorphicTheme.muted)
+      .help("閉じる")
+      .accessibilityLabel("お楽しみ再生の選択を閉じる")
+    }
+    .padding(16)
+  }
+
+  private var overviewOptions: some View {
+    Group {
+      optionGroup("新しい楽しみ方") {
+        optionRow(0, title: "マイチャンネル", detail: "全動画アルバムをチャンネルに", symbol: "tv")
+        optionRow(1, title: "気分でミックス", detail: "短く・未視聴・お気に入りから選ぶ", symbol: "shuffle", opensPage: true)
+        optionRow(2, title: "時間ぴったり再生", detail: "5・10・15・30分から選ぶ", symbol: "timer", opensPage: true)
+        optionRow(3, title: "ストックした場面を再生", detail: "保存しておいた場面を見返す", symbol: "bookmark")
+      }
+      optionGroup("プレビュー巡回") {
+        HStack(spacing: 8) {
+          durationTile(4, value: "15", unit: "秒", detail: "ずつ試聴")
+          durationTile(5, value: "30", unit: "秒", detail: "ずつ試聴")
+        }
+      }
+      optionGroup("採用した区間を楽しむ") {
+        optionRow(6, title: "シーンシャッフル", detail: "シーン抽出で採用した区間を再生", symbol: "film.stack")
+      }
+    }
+  }
+
+  private var moodOptions: some View {
+    VStack(spacing: 4) {
+      ForEach(Array(PlaybackTourSession.Mood.allCases.enumerated()), id: \.offset) { index, mood in
+        optionRow(index, title: mood.rawValue, detail: moodDetail(mood), symbol: moodSymbol(mood))
+      }
+    }
+  }
+
+  private var durationOptions: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+        ForEach(Array(Self.durationChoices.enumerated()), id: \.offset) { index, minutes in
+          durationTile(index, value: String(minutes), unit: "分", detail: "再生する")
+        }
+      }
+      Text("最後の区間の長さを調整して，選んだ時間に合わせます")
+        .font(.appCaption)
+        .foregroundStyle(NeomorphicTheme.muted)
+    }
+  }
+
+  private func optionGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(title)
+        .font(.appMicroStrong)
+        .foregroundStyle(NeomorphicTheme.muted)
+        .padding(.horizontal, 8)
+        .accessibilityAddTraits(.isHeader)
+      VStack(spacing: 4, content: content)
+    }
+  }
+
+  private func optionRow(_ index: Int, title: String, detail: String, symbol: String, opensPage: Bool = false) -> some View {
+    Button { activateOption(index) } label: {
+      HStack(spacing: 12) {
+        Image(systemName: symbol)
+          .font(.system(size: 16, weight: .regular))
+          .foregroundStyle(NeomorphicTheme.muted)
+          .frame(width: 24)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(title)
+            .font(.appCaptionStrong)
+            .foregroundStyle(NeomorphicTheme.ink)
+          Text(detail)
+            .font(.appMicro)
+            .foregroundStyle(NeomorphicTheme.muted)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
+        Image(systemName: opensPage ? "chevron.right" : "play.fill")
+          .font(.system(size: opensPage ? 10 : 8, weight: .medium))
+          .foregroundStyle(NeomorphicTheme.muted)
+          .frame(width: 12)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .buttonStyle(LibraryTourOptionStyle(isFocused: focusedOption == index))
+    .focusable()
+    .focused($focusedOption, equals: index)
+    .onHover { inside in
+      if inside { focusedOption = index }
+    }
+    .accessibilityLabel(title)
+    .accessibilityHint(detail)
+    .accessibilityIdentifier("library.tour.\(panelPage).\(index)")
+  }
+
+  private func durationTile(_ index: Int, value: String, unit: String, detail: String) -> some View {
+    Button { activateOption(index) } label: {
+      HStack(alignment: .firstTextBaseline, spacing: 4) {
+        Text(value)
+          .font(.system(size: 24, weight: .medium, design: .monospaced))
+        Text(unit)
+          .font(.appCaption)
+        Spacer(minLength: 0)
+        Text(detail)
+          .font(.appMicro)
+          .foregroundStyle(NeomorphicTheme.muted)
+      }
+      .foregroundStyle(NeomorphicTheme.ink)
+      .frame(maxWidth: .infinity, minHeight: 40)
+    }
+    .buttonStyle(LibraryTourOptionStyle(isFocused: focusedOption == index, isTile: true))
+    .focusable()
+    .focused($focusedOption, equals: index)
+    .onHover { inside in
+      if inside { focusedOption = index }
+    }
+    .accessibilityLabel("\(value)\(unit)\(detail)")
+    .accessibilityIdentifier("library.tour.\(panelPage).\(index)")
+  }
+
+  private func moodDetail(_ mood: PlaybackTourSession.Mood) -> String {
+    switch mood {
+    case .short: return "3分以内の動画を30秒ずつ"
+    case .unseen: return "まだ見ていない動画を60秒ずつ"
+    case .favorites: return "お気に入りの動画を60秒ずつ"
+    }
+  }
+
+  private func moodSymbol(_ mood: PlaybackTourSession.Mood) -> String {
+    switch mood {
+    case .short: return "bolt"
+    case .unseen: return "eye"
+    case .favorites: return "heart"
+    }
+  }
+
+  private func moveFocus(by offset: Int) -> KeyPress.Result {
+    let current = focusedOption ?? (offset > 0 ? -1 : 0)
+    focusedOption = (current + offset + optionCount) % optionCount
+    return .handled
+  }
+
+  private func returnToOverview() {
+    let previous = panelPage
+    panelPage = .overview
+    focusedOption = previous == .mood ? 1 : 2
+  }
+
+  /// 画面上の選択肢を，従来と同じ再生処理へ渡す。
+  private func activateOption(_ index: Int) {
+    switch panelPage {
+    case .overview:
+      switch index {
+      case 0:
+        start { try PlaybackTourSession.channelSession(albums: dataManager.albums, videos: dataManager.videos) }
+      case 1:
+        panelPage = .mood
+        focusedOption = 0
+      case 2:
+        panelPage = .duration
+        focusedOption = 0
+      case 3:
+        start { try PlaybackTourSession.highlights(videos: videos, urlForVideo: dataManager.fileURL) }
+      case 4: startPreview(seconds: 15)
+      case 5: startPreview(seconds: 30)
+      case 6:
+        start { try PlaybackTourSession.scenes(videos: videos, urlForVideo: dataManager.fileURL) }
+      default: break
+      }
+    case .mood:
+      let moods = PlaybackTourSession.Mood.allCases
+      guard moods.indices.contains(index) else { return }
+      start {
+        try PlaybackTourSession.mix(videos: videos, mood: moods[index],
+          seenIDs: Set(watchState.historyOrder).union(watchState.progress.keys))
+      }
+    case .duration:
+      guard Self.durationChoices.indices.contains(index) else { return }
+      let minutes = Self.durationChoices[index]
+      start { try PlaybackTourSession.timed(videos: videos, seconds: Double(minutes * Self.secondsPerMinute)) }
+    }
   }
 
   private func startPreview(seconds: Double) {
@@ -1309,11 +1603,79 @@ struct LibraryTourMenu: View {
   private func start(_ makeSession: () throws -> PlaybackTourSession) {
     do {
       let session = try makeSession()
+      close()
       beforePlay()
       coordinator.startTour(session)
     } catch {
       errorMessage = error.localizedDescription
     }
+  }
+}
+
+/// ツールバーのボタンではなく，表示したパネルへキー入力を渡す。
+private struct LibraryTourPanelFocusBridge: NSViewRepresentable {
+  let onReady: () -> Void
+
+  func makeNSView(context: Context) -> FocusView {
+    FocusView(onReady: onReady)
+  }
+
+  func updateNSView(_ view: FocusView, context: Context) {
+    view.onReady = onReady
+  }
+
+  final class FocusView: NSView {
+    var onReady: () -> Void
+
+    init(onReady: @escaping () -> Void) {
+      self.onReady = onReady
+      super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { return nil }
+
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      guard let window else { return }
+      // ホストのウィンドウが用意されてから，SwiftUIのフォーカスを設定する。
+      DispatchQueue.main.async { [weak self, weak window] in
+        guard let self, let window else { return }
+        window.makeKey()
+        self.onReady()
+      }
+    }
+  }
+}
+
+/// 選択行のホバーとキーボードのフォーカスを同じ面と青線で示す。
+private struct LibraryTourOptionStyle: ButtonStyle {
+  let isFocused: Bool
+  var isTile = false
+  @State private var isHovering = false
+
+  func makeBody(configuration: Configuration) -> some View {
+    let isActive = isFocused || isHovering || configuration.isPressed
+    return configuration.label
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+      .background(
+        RoundedRectangle(cornerRadius: 8)
+          .fill(isActive ? NeomorphicTheme.controlSelected : (isTile ? NeomorphicTheme.control : .clear))
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: 8)
+          .strokeBorder(isActive || isTile ? NeomorphicTheme.cardBorder : .clear, lineWidth: 1)
+      }
+      .overlay(alignment: .leading) {
+        if isActive {
+          RoundedRectangle(cornerRadius: 1)
+            .fill(NeomorphicTheme.accent)
+            .frame(width: 2, height: 16)
+            .padding(.leading, 2)
+        }
+      }
+      .contentShape(RoundedRectangle(cornerRadius: 8))
+      .onHover { isHovering = $0 }
   }
 }
 
@@ -1404,7 +1766,7 @@ struct PlaybackTourView: View {
             .frame(width: 90)
             .accessibilityLabel("音量")
           Button("このまま見る", systemImage: "play.rectangle") { continueWatching() }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(AppActionButtonStyle(isPrimary: true))
             .keyboardShortcut(.return, modifiers: [])
             .disabled(model.isLoading || model.errorMessage != nil || model.isFinished)
         }
@@ -1428,7 +1790,7 @@ struct PlaybackTourView: View {
     .foregroundStyle(.white)
     .background(Color.black)
     .tint(NeomorphicTheme.accent)
-    .buttonStyle(.bordered)
+    .buttonStyle(AppActionButtonStyle())
     .preferredColorScheme(.dark)
     .onAppear {
       coordinator.setPlaybackActive(false)
@@ -1482,7 +1844,7 @@ struct StockMomentButton: View {
     .popover(isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
       Text(notice ?? "").font(.appBody).padding(16).frame(width: 300)
     }
-    .alert("保存できません", isPresented: Binding(
+    .appAlert("保存できません", isPresented: Binding(
       get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
     )) {
       Button("閉じる", role: .cancel) { errorMessage = nil }

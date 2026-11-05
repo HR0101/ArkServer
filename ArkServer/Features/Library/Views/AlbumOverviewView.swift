@@ -160,7 +160,7 @@ struct AlbumOverviewView: View {
 
     private var flatToggle: some View {
         Toggle("フォルダの中も並べる", isOn: $showsAllAlbums)
-            .toggleStyle(.checkbox)
+            .toggleStyle(AppToggleStyle(isCheckbox: true))
             .lineLimit(1)
             .fixedSize()
             .disabled(!trimmedQuery.isEmpty)
@@ -171,14 +171,14 @@ struct AlbumOverviewView: View {
 
     private var hideEmptyToggle: some View {
         Toggle("空のアルバムを隠す", isOn: $hidesEmpty)
-            .toggleStyle(.checkbox)
+            .toggleStyle(AppToggleStyle(isCheckbox: true))
             .lineLimit(1)
             .fixedSize()
             .help("中身が0件のアルバムを一覧から外します．オフでも，空のアルバムは各区画の末尾にまとまります．")
     }
 
     private var orderMenu: some View {
-        Menu {
+        AppChoiceMenu {
             ForEach(Order.allCases) { option in
                 Toggle(option.rawValue, isOn: Binding(
                     get: { order == option },

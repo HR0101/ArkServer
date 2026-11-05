@@ -41,7 +41,7 @@ struct MusicVideoExportAlbumSheet: View {
       HStack(spacing: 12) {
         TextField("アルバム名で検索", text: $searchText)
           .textFieldStyle(.roundedBorder)
-        Picker("並べ替え", selection: $order) {
+        AppChoicePicker("並べ替え", selection: $order) {
           ForEach(Order.allCases) { Text($0.rawValue).tag($0) }
         }
         .frame(width: 210)
@@ -177,7 +177,7 @@ struct MusicVideoExportAlbumSheet: View {
         .keyboardShortcut(.cancelAction)
         .accessibilityIdentifier("musicvideo.exportAlbum.cancel")
       Button("書き出して追加") { confirm() }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(AppActionButtonStyle(isPrimary: true))
         .keyboardShortcut(.defaultAction)
         .disabled(destination == nil)
         .accessibilityIdentifier("musicvideo.exportAlbum.confirm")

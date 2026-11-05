@@ -207,7 +207,7 @@ struct MusicVideoMusicPickerView: View {
           TextField("曲名で検索", text: $searchText)
             .textFieldStyle(.roundedBorder)
             .frame(minWidth: 160)
-          Picker("並べ替え", selection: $order) {
+          AppChoicePicker("並べ替え", selection: $order) {
             ForEach(MusicVideoMusicOrder.allCases) { Text($0.rawValue).tag($0) }
           }
           .labelsHidden()
@@ -234,7 +234,7 @@ struct MusicVideoMusicPickerView: View {
         Text("曲を置いてあるフォルダを選んでください")
           .font(.appBody)
         Button("フォルダを選ぶ…", action: chooseFolder)
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(AppActionButtonStyle(isPrimary: true))
       }
       .foregroundStyle(NeomorphicTheme.muted)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
