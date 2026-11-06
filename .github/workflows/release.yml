@@ -15,9 +15,33 @@ concurrency:
 jobs:
   release:
     runs-on: macos-latest
-    timeout-minutes: 30
+    # 公証の待ち時間(最長 20 分)を含めても収まるようにする。
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      # 署名用の Secrets が 5 つそろっていれば Developer ID 署名と公証を行う。1 つも無ければ従来のアドホック署名。
+      # 一部だけ登録されている場合は、設定ミスとみなして止める(署名なしの DMG を気づかず配信しないため)。
+      - name: Check signing secrets
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          missing=()
+          for name in BUILD_CERTIFICATE_BASE64 P12_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+          elif [ "${#missing[@]}" -eq 5 ]; then
+            echo "SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+            echo "::warning::署名用の Secrets が未登録のため、アドホック署名の DMG を作ります(開くときに Gatekeeper の警告が出ます)"
+          else
+            echo "::error::署名用の Secrets が一部しか登録されていません。不足: ${missing[*]}"
+            exit 1
+          fi
       - name: Read version from tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -31,11 +55,19 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as output:
               output.write(f'APP_VERSION={match[1]}\nAPP_BUILD={match[2] or "1"}\n')
           PY
+      # テストは並列にしない。並列のままだと約 90 件が同時に動き、手元でも再生まわりのテストが不安定になる。
+      # CI の仮想環境では固まって打ち切られていた(並列を止めると同時に動くのは最大 3 件)。
+      # 万一固まっても、ジョブ全体の時間切れを待たずに、このステップを 20 分で止める。
       - name: Test
+        timeout-minutes: 20
+        env:
+          # テストの実行側へ渡す(TEST_RUNNER_ を外した名前 CI で届く)。画面を使うテストを飛ばす目印。
+          TEST_RUNNER_CI: 'true'
         run: >-
           xcodebuild test -project ArkServer.xcodeproj -scheme ArkServer
           -destination 'platform=macOS' -only-testing:ArkServerTests
           -derivedDataPath "$RUNNER_TEMP/ArkServerDerivedData"
+          -parallel-testing-enabled NO
           CODE_SIGNING_ALLOWED=NO
       - name: Build universal release
         run: >-
@@ -45,15 +77,75 @@ jobs:
           ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO
           MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$APP_BUILD"
           CODE_SIGNING_ALLOWED=NO
+      - name: Import Developer ID certificate
+        if: env.SIGNING_ENABLED == 'true'
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERTIFICATE_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          rm -f "$CERTIFICATE_PATH"
+          # 公証に使うチームと同じチームの証明書だけを使う。
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -v team="($APPLE_TEAM_ID)" '/Developer ID Application/ && index($0, team) { print $2; exit }')"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::チーム $APPLE_TEAM_ID の Developer ID Application 証明書が見つかりません(.p12 の中身と APPLE_TEAM_ID を確認してください)"
+            exit 1
+          fi
+          {
+            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
+            echo "SIGNING_IDENTITY=$IDENTITY"
+          } >> "$GITHUB_ENV"
+      - name: Sign app
+        run: |
+          APP="$RUNNER_TEMP/ArkServerRelease/Build/Products/Release/ArkServer.app"
+          if [ "$SIGNING_ENABLED" = "true" ]; then
+            codesign --force --deep --options runtime --timestamp --keychain "$KEYCHAIN_PATH" --sign "$SIGNING_IDENTITY" "$APP"
+            codesign --verify --deep --strict --verbose=2 "$APP"
+          else
+            codesign --force --deep --sign - "$APP"
+          fi
       - name: Package app
         run: |
-          codesign --force --deep --sign - "$RUNNER_TEMP/ArkServerRelease/Build/Products/Release/ArkServer.app"
           DMG_STAGING="$RUNNER_TEMP/ArkServerDMG"
           rm -rf "$DMG_STAGING"
           mkdir -p "$DMG_STAGING"
           ditto "$RUNNER_TEMP/ArkServerRelease/Build/Products/Release/ArkServer.app" "$DMG_STAGING/ArkServer.app"
           ln -s /Applications "$DMG_STAGING/Applications"
           hdiutil create -volname "Ark Server" -srcfolder "$DMG_STAGING" -ov -format UDZO ArkServer.dmg
+      - name: Sign and notarize DMG
+        if: env.SIGNING_ENABLED == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          codesign --force --timestamp --keychain "$KEYCHAIN_PATH" --sign "$SIGNING_IDENTITY" ArkServer.dmg
+          RESULT="$RUNNER_TEMP/notarization.json"
+          xcrun notarytool submit ArkServer.dmg --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --timeout 20m --output-format json > "$RESULT" || true
+          cat "$RESULT"
+          STATUS="$(jq -r '.status // empty' "$RESULT" 2>/dev/null || true)"
+          SUBMISSION_ID="$(jq -r '.id // empty' "$RESULT" 2>/dev/null || true)"
+          # 承認されていなければ、理由(Apple のログ)を表示して止める。
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::公証が承認されませんでした(status: ${STATUS:-不明})"
+            if [ -n "$SUBMISSION_ID" ]; then
+              xcrun notarytool log "$SUBMISSION_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            fi
+            exit 1
+          fi
+          xcrun stapler staple ArkServer.dmg
+          xcrun stapler validate ArkServer.dmg
+          spctl --assess --type open --context context:primary-signature --verbose=2 ArkServer.dmg || true
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -64,3 +156,6 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" ArkServer.dmg --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest
+      - name: Remove signing keychain
+        if: always() && env.SIGNING_ENABLED == 'true'
+        run: security delete-keychain "$KEYCHAIN_PATH" || true

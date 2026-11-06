@@ -73,7 +73,7 @@ struct MusicVideoFullScreenPresenterTests {
     NSApp.sendEvent(event)
   }
 
-  @Test
+  @Test(.disabled(if: isRunningOnCIOrInVirtualMachine(), "画面のない仮想環境(CI)では、ウィンドウの操作が終わらず固まるため。手元の Mac では実行する"))
   func coversTheWholeScreenWhetherOrNotTheMainWindowIsFullScreen() async throws {
     let directory = try temporaryDirectory("fullscreen-presenter")
     let suite = "musicvideo-fullscreen-tests-\(UUID().uuidString)"
