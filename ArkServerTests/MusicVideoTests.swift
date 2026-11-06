@@ -67,8 +67,18 @@ func makeTestVideo(
   writer.startSession(atSourceTime: .zero)
 
   for frameIndex in 0..<Int(duration * Double(framesPerSecond)) {
+    // 書き込みが失敗すると、受け付け可能(isReadyForMoreMediaData)には二度とならない。
+    // 失敗したとき、または進まないまま長く待ったときは、理由をつけて失敗させる(待ち続けて、テスト全体を止めない)。
+    let deadline = Date().addingTimeInterval(60)
     while !input.isReadyForMoreMediaData {
       try Task.checkCancellation()
+      if writer.status == .failed || writer.status == .cancelled {
+        throw writer.error ?? CocoaError(.fileWriteUnknown)
+      }
+      if Date() > deadline {
+        writer.cancelWriting()
+        throw TestVideoWriteStalled(frame: frameIndex, status: writer.status.rawValue)
+      }
       try await Task.sleep(for: .milliseconds(2))
     }
     var pixelBuffer: CVPixelBuffer?
@@ -79,11 +89,21 @@ func makeTestVideo(
       memset(baseAddress, Int32(brightness(frameIndex)), CVPixelBufferGetDataSize(pixelBuffer))
     }
     CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-    #expect(adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(frameIndex), timescale: framesPerSecond)))
+    // 追加できなかったとき(エンコーダーの失敗など)は、続けても受け付け可能にならないので、そこで失敗させる。
+    guard adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(frameIndex), timescale: framesPerSecond)) else {
+      throw writer.error ?? CocoaError(.fileWriteUnknown)
+    }
   }
   input.markAsFinished()
   await writer.finishWriting()
   #expect(writer.status == .completed)
+}
+
+/// 動画の書き込みが、進まないまま長く待たされたことを表す。
+nonisolated struct TestVideoWriteStalled: Error, CustomStringConvertible {
+  let frame: Int
+  let status: Int
+  var description: String { "動画の書き込みが 60 秒進まなかった(フレーム \(frame)、書き込みの状態 \(status))" }
 }
 
 func temporaryDirectory(_ name: String) throws -> URL {
@@ -623,7 +643,7 @@ func step<T>(_ label: String, _ body: () async throws -> T) async throws -> T {
   }
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(3)))
 struct MusicVideoComposerTests {
   private func cut(_ video: UUID, from sourceStart: Double, at start: Double, length: Double) -> PlannedCut {
     PlannedCut(videoID: video, sourceStart: sourceStart, duration: length, timelineStart: start, intensity: .medium)
@@ -739,7 +759,7 @@ func writeMonoWAV(samples: [Float], sampleRate: Double, to url: URL) throws {
   try file.write(from: buffer)
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(3)))
 struct MusicVideoPipelineTests {
   /// 曲の解析 → 素材の解析 → カット割り → 合成 → 書き出し を通しで動かし、
   /// 完成映像の各カットが、計画した素材の「その時刻」の絵になっていることを確かめる。
@@ -1156,7 +1176,19 @@ private func makePatternVideo(at url: URL, duration: Double, width: Int = 640, h
   #expect(writer.startWriting())
   writer.startSession(atSourceTime: .zero)
   for frame in 0..<Int(duration * Double(framesPerSecond)) {
-    while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
+    // 書き込みが失敗したとき、または進まないまま長く待ったときは、理由をつけて失敗させる(待ち続けない)。
+    let deadline = Date().addingTimeInterval(60)
+    while !input.isReadyForMoreMediaData {
+      try Task.checkCancellation()
+      if writer.status == .failed || writer.status == .cancelled {
+        throw writer.error ?? CocoaError(.fileWriteUnknown)
+      }
+      if Date() > deadline {
+        writer.cancelWriting()
+        throw TestVideoWriteStalled(frame: frame, status: writer.status.rawValue)
+      }
+      try await Task.sleep(for: .milliseconds(2))
+    }
     var pixelBuffer: CVPixelBuffer?
     CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
     guard let pixelBuffer else { throw CocoaError(.fileWriteUnknown) }
@@ -1171,14 +1203,16 @@ private func makePatternVideo(at url: URL, duration: Double, width: Int = 640, h
       }
     }
     CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-    adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: framesPerSecond))
+    guard adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: framesPerSecond)) else {
+      throw writer.error ?? CocoaError(.fileWriteUnknown)
+    }
   }
   input.markAsFinished()
   await writer.finishWriting()
   #expect(writer.status == .completed)
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(3)))
 struct MusicVideoExportQualityTests {
   @Test
   func bitrateScalesWithQualityAndScreenSize() {
