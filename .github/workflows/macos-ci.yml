@@ -48,11 +48,16 @@ jobs:
           -derivedDataPath "$RUNNER_TEMP/ArkServerDerivedData"
           CODE_SIGNING_ALLOWED=NO
 
+      # テストは並列にしない。並列のままだと約 90 件が同時に動き、手元でも再生まわりのテストが不安定になる。
+      # CI の仮想環境では固まって 30 分で打ち切られていた(並列を止めると同時に動くのは最大 3 件)。
+      # 万一固まっても、ジョブ全体の 30 分を待たずに、このステップを 20 分で止める。
       - name: Test macOS app
+        timeout-minutes: 20
         run: >-
           xcodebuild test
           -project ArkServer.xcodeproj
           -scheme ArkServer
           -destination 'platform=macOS'
           -derivedDataPath "$RUNNER_TEMP/ArkServerDerivedData"
+          -parallel-testing-enabled NO
           CODE_SIGNING_ALLOWED=NO
