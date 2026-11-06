@@ -92,6 +92,17 @@ func temporaryDirectory(_ name: String) throws -> URL {
   return url
 }
 
+/// CI(GitHub Actions)か、仮想マシンの中かどうか。
+/// 画面のない仮想環境では、ウィンドウの全画面化や前面化といった画面の操作が終わらず、テスト全体が固まることがある。
+/// そのため、実際のウィンドウを使うテストは、この環境では飛ばす(手元の Mac では実行する)。
+/// CI は、環境変数 `CI`(ワークフローで `TEST_RUNNER_CI` として渡す)と、仮想マシンかどうか(`kern.hv_vmm_present`)の両方で見分ける。
+nonisolated func isRunningOnCIOrInVirtualMachine() -> Bool {
+  if ProcessInfo.processInfo.environment["CI"] != nil { return true }
+  var value: Int32 = 0
+  var size = MemoryLayout<Int32>.size
+  return sysctlbyname("kern.hv_vmm_present", &value, &size, nil, 0) == 0 && value == 1
+}
+
 // MARK: - ビート解析
 
 @Suite(.serialized)

@@ -53,6 +53,9 @@ jobs:
       # 万一固まっても、ジョブ全体の 30 分を待たずに、このステップを 20 分で止める。
       - name: Test macOS app
         timeout-minutes: 20
+        env:
+          # テストの実行側へ渡す(TEST_RUNNER_ を外した名前 CI で届く)。画面を使うテストを飛ばす目印。
+          TEST_RUNNER_CI: 'true'
         run: >-
           xcodebuild test
           -project ArkServer.xcodeproj
