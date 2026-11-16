@@ -2,7 +2,7 @@
 
 ## 配信の仕組み
 
-配信元は `HR0101/ArkServer` の GitHub Releases です。コードを `main` にpush・マージすると[リリースワークフロー](.github/workflows/release.yml)がテスト・ビルド・署名・公証・DMG生成までを自動実行し、生成した `ArkServer.dmg` を GitHub Actions の Artifacts に保存します（リリース公開とアップデート配信は行いません）。新しいバージョンのタグをpushすると、加えて GitHub Releases の公開も行います。
+配信元は `HR0101/ArkServer` の GitHub Releases です。作業内容はまず `Test` ブランチへまとめ、`Test` から `main` へマージ／push すると、[リリースワークフロー](.github/workflows/release.yml)がテスト・ビルド・署名・公証・DMG生成に加えて、最新タグのパッチ番号を自動で 1 上げたタグ（例: `v1.0.0` → `v1.0.1`）を作成し、GitHub Releases の公開（`Latest` + `ArkServer.dmg` 添付）まで実行します。`v1.1.0` のようにマイナー／メジャー番号を指定したい場合のみ、手動でタグを push してください。
 
 アプリ側の自動処理は **更新の検知まで** です。更新を検知すると、メイン画面のツールバーと詳細設定に「アップデート可能」ボタンを表示します。ボタンを押すと更新内容とダウンロード操作を表示します。
 
@@ -25,21 +25,21 @@
 
 ## 配信手順
 
-1. 配信する変更と `.github/workflows/release.yml` をコミットし、GitHubの `main` に反映します。初回はアップデート検知機能のコードも含めます。
-2. リリース対象のコミットでテストが成功していることを確認します。
-3. 対象のコミットに新しいタグを付けてpushします。以下は `v1.0.1` を配信する例です。番号は実際の次のバージョンに置き換えてください。
+1. 配信する変更はまず `Test` ブランチへまとめ、`macOS CI` が成功していることを確認します。
+2. `Test` ブランチを `main` にマージ（または push）すると、自動でパッチ番号（例: `v1.0.0` → `v1.0.1`）が振られてリリースワークフローが起動します。
+3. マイナー／メジャー番号（例: `v1.1.0`）を明示したい場合だけ、対象のコミットにタグを付けて push してください。
 
    ```sh
    git switch main
    git pull --ff-only origin main
    git status --short
-   git tag -a v1.0.1 -m "Release v1.0.1"
-   git push origin v1.0.1
+   git tag -a v1.1.0 -m "Release v1.1.0"
+   git push origin v1.1.0
    ```
 
    タグは現在のコミットを指します。タグを付ける前に、配信したい変更がコミット済みであることを確認してください。
 
-4. GitHub Actionsの `Release` が成功するまで待ちます。テスト、arm64/x86_64のReleaseビルド、署名、DMG生成を順に実行します。署名用のSecretsを登録していれば、Developer ID署名とAppleの公証も行います（[署名と公証](#署名と公証)を参照）。タグの値がアプリのバージョン・ビルド番号に反映されます。
+4. GitHub Actionsの `Release` が成功するまで待ちます。テスト、arm64/x86_64のReleaseビルド、署名、DMG生成、公証、GitHub Releases 公開までを順に実行します（[署名と公証](#署名と公証)を参照）。バージョン番号はアプリの `CFBundleShortVersionString` / `CFBundleVersion` に反映されます。
 5. GitHub Releasesで、該当タグのリリースが公開され、`Latest` になっていることと、`ArkServer.dmg` が添付されていることを確認します。リリースノートは自動生成されるので、必要に応じて変更点を追記します。
 6. 以前のバージョンのアプリで手動の「アップデートを確認…」を実行し、「アップデート可能」ボタン、バージョン番号、リリースノートを確認します。
 
