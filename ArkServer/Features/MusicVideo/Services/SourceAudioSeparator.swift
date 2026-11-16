@@ -153,36 +153,32 @@ nonisolated struct SourceAudioSeparator: Sendable {
       start: CMTime(seconds: start, preferredTimescale: 600),
       duration: CMTime(seconds: duration, preferredTimescale: 600)
     )
+    guard reader.startReading() else {
+      throw SourceAudioSeparatorError.cannotRead(reader.error?.localizedDescription ?? "読み出しを始められません．")
+    }
+
     guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Self.sampleRate, channels: 2, interleaved: false) else {
       throw SourceAudioSeparatorError.cannotRead("音声の形式を作れません．")
     }
-    let outputBox = UncheckedSendableBox(output)
-    let formatBox = UncheckedSendableBox(format)
-    let (left, right, firstTime) = try await AsyncAVFoundation.runReader(
-      reader,
-      queueLabel: "arkserver.audio-separator",
-      startError: { SourceAudioSeparatorError.cannotRead($0) },
-      readError: { SourceAudioSeparatorError.cannotRead($0) }
-    ) { isCancelled in
-      var left: [Float] = []
-      var right: [Float] = []
-      var firstTime: Double?
-      while let sampleBuffer = outputBox.value.copyNextSampleBuffer() {
-        if isCancelled() { throw CancellationError() }
-        let frames = CMSampleBufferGetNumSamples(sampleBuffer)
-        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: formatBox.value, frameCapacity: AVAudioFrameCount(frames)) else { continue }
-        buffer.frameLength = AVAudioFrameCount(frames)
-        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
-          sampleBuffer, at: 0, frameCount: Int32(frames), into: buffer.mutableAudioBufferList
-        )
-        guard status == noErr, let channels = buffer.floatChannelData else { continue }
-        if firstTime == nil { firstTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds }
-        left.append(contentsOf: UnsafeBufferPointer(start: channels[0], count: frames))
-        right.append(contentsOf: UnsafeBufferPointer(start: channels[1], count: frames))
-      }
-      return (left, right, firstTime)
+    var left: [Float] = []
+    var right: [Float] = []
+    var firstTime: Double?
+    while let sampleBuffer = output.copyNextSampleBuffer() {
+      try Task.checkCancellation()
+      let frames = CMSampleBufferGetNumSamples(sampleBuffer)
+      guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)) else { continue }
+      buffer.frameLength = AVAudioFrameCount(frames)
+      let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+        sampleBuffer, at: 0, frameCount: Int32(frames), into: buffer.mutableAudioBufferList
+      )
+      guard status == noErr, let channels = buffer.floatChannelData else { continue }
+      if firstTime == nil { firstTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds }
+      left.append(contentsOf: UnsafeBufferPointer(start: channels[0], count: frames))
+      right.append(contentsOf: UnsafeBufferPointer(start: channels[1], count: frames))
     }
-    try Task.checkCancellation()
+    if reader.status == .failed {
+      throw SourceAudioSeparatorError.cannotRead(reader.error?.localizedDescription ?? "読み出しに失敗しました．")
+    }
     guard !left.isEmpty else { throw SourceAudioSeparatorError.cannotRead("指定の範囲に音がありません．") }
     return ReadAudio(audio: AudioSignal(sampleRate: Self.sampleRate, channels: [left, right]), startTime: firstTime ?? start)
   }

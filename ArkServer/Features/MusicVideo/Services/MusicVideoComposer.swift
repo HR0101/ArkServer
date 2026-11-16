@@ -61,7 +61,6 @@ nonisolated struct MusicVideoComposition: @unchecked Sendable {
   /// 画面サイズとフレームレート。書き出しのビットレートの計算にも使う。
   let render: MusicVideoRenderSettings
 
-  @MainActor
   func makePlayerItem() -> AVPlayerItem {
     let item = AVPlayerItem(asset: composition)
     item.videoComposition = videoComposition
@@ -761,21 +760,12 @@ nonisolated struct MusicVideoComposer: Sendable {
     private let audioOutput: AVAssetReaderAudioMixOutput?
     private let audioInput: AVAssetWriterInput?
     private let duration: Double
-    private enum Phase {
-      case idle
-      case startingReader
-      case startingWriter
-      case running
-      case finishing
-      case finished
-    }
+    /// 読み出しの開始(startReading)中に中止(cancelReading)を呼ぶと AVFoundation の内部で落ちるので、
+    /// 開始中の取り消しは、開始が終わってから実行する。
+    private enum Phase { case idle, starting, running }
     private let lock = NSLock()
     private var isCancelled = false
-    private var didAbort = false
-    private var didCancelReader = false
-    private var didCancelWriter = false
     private var phase: Phase = .idle
-    private var activeContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
 
     init(composed: MusicVideoComposition, outputURL: URL, quality: MusicVideoExportQuality) throws {
       let render = composed.render
@@ -860,241 +850,62 @@ nonisolated struct MusicVideoComposer: Sendable {
     }
 
     func cancel() {
-      let (shouldCancelReader, shouldCancelWriter, continuations) = lock.withLock {
-        () -> (Bool, Bool, [CheckedContinuation<Void, any Error>]) in
-        isCancelled = true
-        // startReading() の途中で cancelReading() を呼ぶと AVFoundation の内部で落ちるため、
-        // startingReader 中は止めず、開始が終わってから executeStartPipeline() で止める。
-        let canCancelReader = !didCancelReader && (phase == .startingWriter || phase == .running)
-        if canCancelReader { didCancelReader = true }
-        let canCancelWriter = !didCancelWriter && phase == .running
-        if canCancelWriter { didCancelWriter = true }
-        let pending = Array(activeContinuations.values)
-        activeContinuations.removeAll()
-        return (canCancelReader, canCancelWriter, pending)
-      }
-      if shouldCancelReader { reader.cancelReading() }
-      if shouldCancelWriter { writer.cancelWriting() }
-      for continuation in continuations {
-        continuation.resume(throwing: CancellationError())
-      }
-    }
-
-    private var shouldStopPumping: Bool {
-      lock.withLock { isCancelled || didAbort }
+      lock.lock()
+      isCancelled = true
+      let shouldCancelNow = phase == .running
+      lock.unlock()
+      // 読み出しを止めると、流し込みの側は終わりまで読んだものとして自然に閉じる。
+      // まだ始まっていない/開始中なら、run() が開始後に止める。
+      if shouldCancelNow { reader.cancelReading() }
     }
 
     private var wasCancelled: Bool {
-      lock.withLock { isCancelled }
+      lock.lock(); defer { lock.unlock() }
+      return isCancelled
     }
 
     func run(progress: @escaping @Sendable (Double) async -> Void) async throws {
-      try await startPipeline()
+      lock.lock()
+      if isCancelled { lock.unlock(); throw CancellationError() }
+      phase = .starting
+      lock.unlock()
 
-      try await withThrowingTaskGroup(of: Void.self) { group in
-        group.addTask {
-          try await self.pump(self.videoInput, from: self.videoOutput, progress: progress)
-        }
-        if let audioInput, let audioOutput {
-          group.addTask {
-            try await self.pump(audioInput, from: audioOutput, progress: nil)
-          }
-        }
-        try await group.waitForAll()
-      }
+      let started = reader.startReading()
 
-      if wasCancelled {
-        cancelReaderOnce()
-        cancelWriterOnce()
-        markFinished()
+      lock.lock()
+      phase = .running
+      let cancelledWhileStarting = isCancelled
+      lock.unlock()
+      if cancelledWhileStarting {
+        reader.cancelReading()
         throw CancellationError()
       }
-      if reader.status == .failed && writer.status != .failed {
-        cancelWriterOnce()
-        markFinished()
-        throw MusicVideoComposerError.exportFailed(reader.error?.localizedDescription ?? "読み出しに失敗しました．")
+      guard started else {
+        throw MusicVideoComposerError.exportFailed(reader.error?.localizedDescription ?? "読み出しを開始できませんでした．")
       }
-      if writer.status == .failed {
-        cancelReaderOnce()
-        markFinished()
-        throw MusicVideoComposerError.exportFailed(writer.error?.localizedDescription ?? "書き込みに失敗しました．")
+      guard writer.startWriting() else {
+        reader.cancelReading()
+        throw MusicVideoComposerError.exportFailed(writer.error?.localizedDescription ?? "書き込みを開始できませんでした．")
       }
-      guard enterFinishing() else {
-        cancelWriterOnce()
-        markFinished()
-        throw CancellationError()
-      }
-      do {
-        try await AsyncAVFoundation.finishWriting(writer)
-      } catch {
-        markFinished()
-        throw error
-      }
-      markFinished()
-      if wasCancelled {
-        throw CancellationError()
-      }
-      guard writer.status == .completed else {
-        throw MusicVideoComposerError.exportFailed(writer.error?.localizedDescription ?? "書き込みに失敗しました．")
-      }
-    }
-
-    private func startPipeline() async throws {
-      try Task.checkCancellation()
-      let id = UUID()
-      try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-        let armed = lock.withLock { () -> Bool in
-          guard !isCancelled else { return false }
-          phase = .startingReader
-          activeContinuations[id] = continuation
-          return true
-        }
-        guard armed else {
-          continuation.resume(throwing: CancellationError())
-          return
-        }
-        DispatchQueue(label: "musicvideo.export.start", qos: .userInitiated).async {
-          self.executeStartPipeline(id: id)
-        }
-      }
-    }
-
-    private func executeStartPipeline(id: UUID) {
-      let readerStarted = reader.startReading()
-      let afterReader = lock.withLock { () -> (cancelled: Bool, failed: Bool) in
-        if isCancelled {
-          phase = .finished
-          return (true, false)
-        }
-        guard readerStarted else {
-          phase = .finished
-          return (false, true)
-        }
-        phase = .startingWriter
-        return (false, false)
-      }
-      if afterReader.cancelled {
-        if readerStarted { cancelReaderOnce() }
-        resumeContinuation(id: id, error: CancellationError())
-        return
-      }
-      if afterReader.failed {
-        let reason = reader.error?.localizedDescription ?? "読み出しを開始できませんでした．"
-        resumeContinuation(id: id, error: MusicVideoComposerError.exportFailed(reason))
-        return
-      }
-
-      let writerStarted = writer.startWriting()
-      let abortedBeforeSession = lock.withLock { () -> (cancelled: Bool, failed: Bool) in
-        if isCancelled {
-          phase = .finished
-          return (true, false)
-        }
-        guard writerStarted else {
-          phase = .finished
-          return (false, true)
-        }
-        return (false, false)
-      }
-      if abortedBeforeSession.cancelled {
-        cancelReaderOnce()
-        if writerStarted { cancelWriterOnce() }
-        resumeContinuation(id: id, error: CancellationError())
-        return
-      }
-      if abortedBeforeSession.failed {
-        cancelReaderOnce()
-        let reason = writer.error?.localizedDescription ?? "書き込みを開始できませんでした．"
-        resumeContinuation(id: id, error: MusicVideoComposerError.exportFailed(reason))
-        return
-      }
-
       writer.startSession(atSourceTime: .zero)
 
-      let cancelledDuringSession = lock.withLock { () -> Bool in
-        if isCancelled {
-          phase = .finished
-          return true
-        }
-        phase = .running
-        return false
-      }
-      if cancelledDuringSession {
-        cancelReaderOnce()
-        cancelWriterOnce()
-        resumeContinuation(id: id, error: CancellationError())
-        return
-      }
-      resumeContinuation(id: id, error: nil)
-    }
+      async let videoDone: Void = pump(videoInput, from: videoOutput, progress: progress)
+      async let audioDone: Void = {
+        if let audioInput, let audioOutput { await pump(audioInput, from: audioOutput, progress: nil) }
+      }()
+      _ = await (videoDone, audioDone)
 
-    private func resumeContinuation(id: UUID, error: (any Error)?) {
-      let continuation = lock.withLock { activeContinuations.removeValue(forKey: id) }
-      if let error {
-        continuation?.resume(throwing: error)
-      } else {
-        continuation?.resume(returning: ())
+      if wasCancelled {
+        writer.cancelWriting()
+        throw CancellationError()
       }
-    }
-
-    private func registerPumpContinuation(_ continuation: CheckedContinuation<Void, any Error>, id: UUID) -> Bool {
-      lock.withLock {
-        guard !isCancelled, !didAbort else { return false }
-        activeContinuations[id] = continuation
-        return true
+      if reader.status == .failed {
+        writer.cancelWriting()
+        throw MusicVideoComposerError.exportFailed(reader.error?.localizedDescription ?? "読み出しに失敗しました．")
       }
-    }
-
-    private func finishPump(id: UUID) {
-      let continuation = lock.withLock { activeContinuations.removeValue(forKey: id) }
-      continuation?.resume(returning: ())
-    }
-
-    private func abortOnPumpFailure() {
-      let (shouldCancelReader, continuations) = lock.withLock {
-        () -> (Bool, [CheckedContinuation<Void, any Error>]) in
-        didAbort = true
-        let canCancelReader = !didCancelReader && phase == .running
-        if canCancelReader { didCancelReader = true }
-        let pending = Array(activeContinuations.values)
-        activeContinuations.removeAll()
-        return (canCancelReader, pending)
-      }
-      if shouldCancelReader { reader.cancelReading() }
-      for continuation in continuations {
-        continuation.resume(returning: ())
-      }
-    }
-
-    private func cancelReaderOnce() {
-      let shouldCancel = lock.withLock { () -> Bool in
-        guard !didCancelReader else { return false }
-        didCancelReader = true
-        return true
-      }
-      if shouldCancel { reader.cancelReading() }
-    }
-
-    private func cancelWriterOnce() {
-      let shouldCancel = lock.withLock { () -> Bool in
-        guard !didCancelWriter else { return false }
-        didCancelWriter = true
-        return true
-      }
-      if shouldCancel { writer.cancelWriting() }
-    }
-
-    private func enterFinishing() -> Bool {
-      lock.withLock {
-        guard !isCancelled else { return false }
-        phase = .finishing
-        return true
-      }
-    }
-
-    private func markFinished() {
-      lock.withLock {
-        phase = .finished
+      await writer.finishWriting()
+      guard writer.status == .completed else {
+        throw MusicVideoComposerError.exportFailed(writer.error?.localizedDescription ?? "書き込みに失敗しました．")
       }
     }
 
@@ -1103,73 +914,41 @@ nonisolated struct MusicVideoComposer: Sendable {
       _ input: AVAssetWriterInput,
       from output: AVAssetReaderOutput,
       progress: (@Sendable (Double) async -> Void)?
-    ) async throws {
-      final class PumpState: @unchecked Sendable {
-        var lastReported = -1.0
-        var isFinished = false
-      }
-
-      let id = UUID()
+    ) async {
       let queue = DispatchQueue(label: "musicvideo.export.\(input.mediaType.rawValue)")
       let total = max(duration, 0.001)
-      let readerBox = UncheckedSendableBox(self.reader)
-      let writerBox = UncheckedSendableBox(self.writer)
-      let inputBox = UncheckedSendableBox(input)
-      let outputBox = UncheckedSendableBox(output)
-      let state = PumpState()
-
       // 書き出し側は、閉じた後も「受け取れます」と呼び出し直してくることがある。
-      // そのとき、解放済みの読み出し側に触らないよう、(1)終わったら何もしない (2)呼び出しが続く間は reader/writer を保持する。
-      try await withTaskCancellationHandler {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-          guard registerPumpContinuation(continuation, id: id) else {
-            continuation.resume(throwing: wasCancelled ? CancellationError() : MusicVideoComposerError.exportFailed("書き込みが中断されました．"))
-            return
-          }
-          inputBox.value.requestMediaDataWhenReady(on: queue) { [weak self, readerBox, writerBox] in
-            withExtendedLifetime((readerBox.value, writerBox.value)) {
-              func markFinishedIfWriting() {
-                state.isFinished = true
-                if writerBox.value.status == .writing {
-                  inputBox.value.markAsFinished()
-                }
-              }
-
-              guard !state.isFinished else { return }
-              guard let self, !self.shouldStopPumping else {
-                markFinishedIfWriting()
-                self?.finishPump(id: id)
+      // そのとき、解放済みの読み出し側に触らないよう、(1)終わったら何もしない (2)呼び出しが続く間は reader を保持する。
+      let reader = self.reader
+      await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        var lastReported = -1.0
+        var isFinished = false
+        input.requestMediaDataWhenReady(on: queue) {
+          withExtendedLifetime(reader) {
+            guard !isFinished else { return }
+            while input.isReadyForMoreMediaData {
+              guard let buffer = output.copyNextSampleBuffer() else {
+                isFinished = true
+                input.markAsFinished()
+                continuation.resume()
                 return
               }
-              while inputBox.value.isReadyForMoreMediaData {
-                if self.shouldStopPumping {
-                  markFinishedIfWriting()
-                  self.finishPump(id: id)
-                  return
-                }
-                guard let buffer = outputBox.value.copyNextSampleBuffer() else {
-                  markFinishedIfWriting()
-                  self.finishPump(id: id)
-                  return
-                }
-                if !inputBox.value.append(buffer) {
-                  markFinishedIfWriting()
-                  self.abortOnPumpFailure()
-                  return
-                }
-                if let progress {
-                  let fraction = min(1, max(0, CMSampleBufferGetPresentationTimeStamp(buffer).seconds / total))
-                  if fraction - state.lastReported >= 0.01 {
-                    state.lastReported = fraction
-                    Task { await progress(fraction) }
-                  }
+              if !input.append(buffer) {
+                isFinished = true
+                input.markAsFinished()
+                continuation.resume()
+                return
+              }
+              if let progress {
+                let fraction = min(1, max(0, CMSampleBufferGetPresentationTimeStamp(buffer).seconds / total))
+                if fraction - lastReported >= 0.01 {
+                  lastReported = fraction
+                  Task { await progress(fraction) }
                 }
               }
             }
           }
         }
-      } onCancel: {
-        self.cancel()
       }
     }
   }
