@@ -2,15 +2,18 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   release:
@@ -42,18 +45,42 @@ jobs:
             echo "::error::署名用の Secrets が一部しか登録されていません。不足: ${missing[*]}"
             exit 1
           fi
-      - name: Read version from tag
+      - name: Resolve version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           python3 - <<'PY'
-          import os, re
-          tag = os.environ['RELEASE_TAG']
-          match = re.fullmatch(r'v((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))(?:\+([1-9][0-9]*))?', tag)
-          if not match:
-              raise SystemExit('Use a stable vMAJOR.MINOR.PATCH tag, optionally +BUILD (positive integer)')
+          import os, re, subprocess
+          ref = os.environ['REF']
+          ref_name = os.environ['REF_NAME']
+          pattern = re.compile(r'v((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))(?:\+([1-9][0-9]*))?')
+          if ref.startswith('refs/tags/'):
+              match = pattern.fullmatch(ref_name)
+              if not match:
+                  raise SystemExit('Use a stable vMAJOR.MINOR.PATCH tag, optionally +BUILD (positive integer)')
+              app_version = match[1]
+              app_build = match[2] or '1'
+              is_release_tag = 'true'
+          else:
+              # タグなし（main へのプッシュ・手動実行）では最新の安定版タグを基本バージョンにし、実行番号をビルド番号にする。
+              subprocess.run(['git', 'fetch', '--tags', '--quiet'], check=False)
+              tags = subprocess.check_output(
+                  ['git', 'tag', '--list', 'v*', '--sort=-v:refname'],
+                  text=True
+              ).splitlines()
+              app_version = '1.0.0'
+              for tag in tags:
+                  match = pattern.fullmatch(tag.strip())
+                  if match:
+                      app_version = match[1]
+                      break
+              app_build = os.environ.get('RUN_NUMBER', '1') or '1'
+              is_release_tag = 'false'
+          print(f'APP_VERSION={app_version} APP_BUILD={app_build} IS_RELEASE_TAG={is_release_tag}')
           with open(os.environ['GITHUB_ENV'], 'a') as output:
-              output.write(f'APP_VERSION={match[1]}\nAPP_BUILD={match[2] or "1"}\n')
+              output.write(f'APP_VERSION={app_version}\nAPP_BUILD={app_build}\nIS_RELEASE_TAG={is_release_tag}\n')
           PY
       # テストは並列にしない。並列のままだと約 90 件が同時に動き、手元でも再生まわりのテストが不安定になる。
       # CI の仮想環境では固まって打ち切られていた(並列を止めると同時に動くのは最大 3 件)。
@@ -151,7 +178,14 @@ jobs:
           xcrun stapler staple ArkServer.dmg
           xcrun stapler validate ArkServer.dmg
           spctl --assess --type open --context context:primary-signature --verbose=2 ArkServer.dmg || true
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: ArkServer.dmg
+          archive: false
+          retention-days: 30
       - name: Publish release
+        if: env.IS_RELEASE_TAG == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}

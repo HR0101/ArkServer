@@ -2,7 +2,7 @@
 
 ## 配信の仕組み
 
-配信元は `HR0101/ArkServer` の GitHub Releases です。コードを `main` にpushするだけでは、アップデートは配信されません。新しいバージョンのタグをpushすると、[リリースワークフロー](.github/workflows/release.yml)がテスト・ビルド・DMG添付・リリース公開を行います。
+配信元は `HR0101/ArkServer` の GitHub Releases です。コードを `main` にpush・マージすると[リリースワークフロー](.github/workflows/release.yml)がテスト・ビルド・署名・公証・DMG生成までを自動実行し、生成した `ArkServer.dmg` を GitHub Actions の Artifacts に保存します（リリース公開とアップデート配信は行いません）。新しいバージョンのタグをpushすると、加えて GitHub Releases の公開も行います。
 
 アプリ側の自動処理は **更新の検知まで** です。更新を検知すると、メイン画面のツールバーと詳細設定に「アップデート可能」ボタンを表示します。ボタンを押すと更新内容とダウンロード操作を表示します。
 
