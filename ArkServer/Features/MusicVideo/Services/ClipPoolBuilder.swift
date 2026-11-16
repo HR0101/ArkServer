@@ -44,7 +44,8 @@ nonisolated struct ClipPoolBuilder: Sendable {
   /// 動画の読み込み(復号)は、標本数に関わらず全フレームぶん行うので、細かくしても重さはあまり増えない。
   var analysisFramesPerSecond = 12.0
   /// 同時に解析する動画の数。
-  var maxConcurrentAnalyses = 3
+  /// 仮想環境では複数のハードウェア復号を同時に走らせると詰まることがあるため 1 に抑える。
+  var maxConcurrentAnalyses = AsyncAVFoundation.isVirtualMachine ? 1 : 3
   /// 解析する動画の最大本数。これを超えたらシードで無作為に選ぶ。
   var maxVideos = 40
   /// キャッシュの保存先。nil ならキャッシュしない。
@@ -72,7 +73,13 @@ nonisolated struct ClipPoolBuilder: Sendable {
         let source = selected[index]
         nextIndex += 1
         group.addTask {
-          (index, try? await self.motionWindows(for: source))
+          do {
+            return (index, try await self.motionWindows(for: source))
+          } catch is CancellationError {
+            throw CancellationError()
+          } catch {
+            return (index, nil)
+          }
         }
       }
       for _ in 0..<max(1, maxConcurrentAnalyses) { addNext() }

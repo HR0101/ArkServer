@@ -50,7 +50,10 @@ func makeTestVideo(
     outputSettings: [
       AVVideoCodecKey: AVVideoCodecType.h264,
       AVVideoWidthKey: size.width,
-      AVVideoHeightKey: size.height
+      AVVideoHeightKey: size.height,
+      AVVideoCompressionPropertiesKey: [
+        AVVideoMaxKeyFrameIntervalKey: Int(framesPerSecond)
+      ]
     ]
   )
   input.transform = transform
@@ -67,20 +70,7 @@ func makeTestVideo(
   writer.startSession(atSourceTime: .zero)
 
   for frameIndex in 0..<Int(duration * Double(framesPerSecond)) {
-    // 書き込みが失敗すると、受け付け可能(isReadyForMoreMediaData)には二度とならない。
-    // 失敗したとき、または進まないまま長く待ったときは、理由をつけて失敗させる(待ち続けて、テスト全体を止めない)。
-    let deadline = Date().addingTimeInterval(60)
-    while !input.isReadyForMoreMediaData {
-      try Task.checkCancellation()
-      if writer.status == .failed || writer.status == .cancelled {
-        throw writer.error ?? CocoaError(.fileWriteUnknown)
-      }
-      if Date() > deadline {
-        writer.cancelWriting()
-        throw TestVideoWriteStalled(frame: frameIndex, status: writer.status.rawValue)
-      }
-      try await Task.sleep(for: .milliseconds(2))
-    }
+    try await waitForVideoInputReady(input, writer: writer, frame: frameIndex)
     var pixelBuffer: CVPixelBuffer?
     CVPixelBufferCreate(kCFAllocatorDefault, size.width, size.height, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
     guard let pixelBuffer else { throw CocoaError(.fileWriteUnknown) }
@@ -95,7 +85,7 @@ func makeTestVideo(
     }
   }
   input.markAsFinished()
-  await writer.finishWriting()
+  try await AsyncAVFoundation.finishWriting(writer)
   #expect(writer.status == .completed)
 }
 
@@ -104,6 +94,22 @@ nonisolated struct TestVideoWriteStalled: Error, CustomStringConvertible {
   let frame: Int
   let status: Int
   var description: String { "動画の書き込みが 60 秒進まなかった(フレーム \(frame)、書き込みの状態 \(status))" }
+}
+
+/// 書き込みが失敗したとき、または進まないまま長く待ったときは、理由をつけて失敗させる(待ち続けて、テスト全体を止めない)。
+func waitForVideoInputReady(_ input: AVAssetWriterInput, writer: AVAssetWriter, frame: Int) async throws {
+  let deadline = Date().addingTimeInterval(60)
+  while !input.isReadyForMoreMediaData {
+    try Task.checkCancellation()
+    if writer.status == .failed || writer.status == .cancelled {
+      throw writer.error ?? CocoaError(.fileWriteUnknown)
+    }
+    if Date() > deadline {
+      writer.cancelWriting()
+      throw TestVideoWriteStalled(frame: frame, status: writer.status.rawValue)
+    }
+    try await Task.sleep(for: .milliseconds(2))
+  }
 }
 
 func temporaryDirectory(_ name: String) throws -> URL {
@@ -771,12 +777,14 @@ struct MusicVideoPipelineTests {
 
     // 曲: 120BPMのクリック(16秒)。
     let musicURL = directory.appendingPathComponent("music.wav")
-    let clicks = evenClicks(from: 0.25, interval: 0.5, until: 16)
-    try writeMonoWAV(
-      samples: clickTrack(duration: 16, clicks: clicks.map { ($0, 0.8) }),
-      sampleRate: testSampleRate,
-      to: musicURL
-    )
+    try await step("writeMonoWAV") {
+      let clicks = evenClicks(from: 0.25, interval: 0.5, until: 16)
+      try writeMonoWAV(
+        samples: clickTrack(duration: 16, clicks: clicks.map { ($0, 0.8) }),
+        sampleRate: testSampleRate,
+        to: musicURL
+      )
+    }
 
     // 素材: 40秒の動画3本。明るさが時刻に比例して上がる(A, C)ものと下がる(B)もの。
     let rampUp: (Int) -> UInt8 = { frame in UInt8(min(250, 20 + 5 * Double(frame) / 30)) }
@@ -784,26 +792,35 @@ struct MusicVideoPipelineTests {
     let kinds: [(name: String, brightness: (Int) -> UInt8, rises: Bool)] = [
       ("a", rampUp, true), ("b", rampDown, false), ("c", rampUp, true)
     ]
-    var sources: [ClipPoolSource] = []
-    var rises: [UUID: Bool] = [:]
-    for kind in kinds {
-      let url = directory.appendingPathComponent("\(kind.name).mp4")
-      try await makeTestVideo(at: url, duration: 40, brightness: kind.brightness)
-      let source = ClipPoolSource(videoID: UUID(), url: url, duration: 40)
-      sources.append(source)
-      rises[source.videoID] = kind.rises
+    let (sources, rises): ([ClipPoolSource], [UUID: Bool]) = try await step("makeTestVideo") {
+      var builtSources: [ClipPoolSource] = []
+      var builtRises: [UUID: Bool] = [:]
+      for kind in kinds {
+        let url = directory.appendingPathComponent("\(kind.name).mp4")
+        try await makeTestVideo(at: url, duration: 40, brightness: kind.brightness)
+        let source = ClipPoolSource(videoID: UUID(), url: url, duration: 40)
+        builtSources.append(source)
+        builtRises[source.videoID] = kind.rises
+      }
+      return (builtSources, builtRises)
     }
 
-    let analysis = try await BeatAnalyzer().analyze(url: musicURL)
+    let analysis = try await step("BeatAnalyzer") {
+      try await BeatAnalyzer().analyze(url: musicURL)
+    }
     #expect(abs(analysis.tempo - 120) < 2)
 
-    let pool = try await ClipPoolBuilder().build(sources: sources, seed: 1)
+    let pool = try await step("ClipPoolBuilder") {
+      try await ClipPoolBuilder().build(sources: sources, seed: 1)
+    }
     // 40秒の動画は、冒頭・末尾を避けた2つの窓に分かれる(窓の開始位置が0でない)。
     #expect(pool.contains { $0.offset > 1 })
 
-    var planner = CutPlanner()
-    planner.style = .relaxed
-    let plan = try planner.plan(analysis: analysis, pool: pool, seed: 3)
+    let plan = try await step("CutPlanner") {
+      var planner = CutPlanner()
+      planner.style = .relaxed
+      return try planner.plan(analysis: analysis, pool: pool, seed: 3)
+    }
     #expect(plan.cuts.count >= 3)
     // 計画した位置は、すべて解析した窓の内側にある。
     for cut in plan.cuts {
@@ -816,28 +833,34 @@ struct MusicVideoPipelineTests {
 
     let render = MusicVideoRenderSettings(width: 320, height: 180, framesPerSecond: 30)
     let composer = MusicVideoComposer()
-    let composed = try await composer.makeComposition(
-      plan: plan,
-      sourceURLs: Dictionary(uniqueKeysWithValues: sources.map { ($0.videoID, $0.url) }),
-      audioURL: musicURL,
-      render: render
-    )
+    let composed = try await step("makeComposition") {
+      try await composer.makeComposition(
+        plan: plan,
+        sourceURLs: Dictionary(uniqueKeysWithValues: sources.map { ($0.videoID, $0.url) }),
+        audioURL: musicURL,
+        render: render
+      )
+    }
     let outputURL = directory.appendingPathComponent("result.mp4")
-    try await composer.export(composed, to: outputURL)
+    try await step("export") {
+      try await composer.export(composed, to: outputURL)
+    }
 
-    let output = AVURLAsset(url: outputURL)
-    #expect(abs(try await output.load(.duration).seconds - analysis.duration) < 0.3)
+    try await step("verify") {
+      let output = AVURLAsset(url: outputURL)
+      #expect(abs(try await output.load(.duration).seconds - analysis.duration) < 0.3)
 
-    let generator = AVAssetImageGenerator(asset: output)
-    generator.requestedTimeToleranceBefore = .zero
-    generator.requestedTimeToleranceAfter = .zero
-    for cut in plan.cuts {
-      let middle = cut.timelineStart + cut.duration / 2
-      let (image, _) = try await generator.image(at: CMTime(seconds: middle, preferredTimescale: 600))
-      let actual = lumaGrid(image).reduce(0, +) / 16
-      let sourceTime = cut.sourceStart + cut.duration / 2
-      let expected = (rises[cut.videoID] ?? true) ? 20 + 5 * sourceTime : 230 - 5 * sourceTime
-      #expect(abs(actual - expected) < 25, "t=\(middle) 期待 \(expected) 実際 \(actual)")
+      let generator = AVAssetImageGenerator(asset: output)
+      generator.requestedTimeToleranceBefore = .zero
+      generator.requestedTimeToleranceAfter = .zero
+      for cut in plan.cuts {
+        let middle = cut.timelineStart + cut.duration / 2
+        let (image, _) = try await generator.image(at: CMTime(seconds: middle, preferredTimescale: 600))
+        let actual = lumaGrid(image).reduce(0, +) / 16
+        let sourceTime = cut.sourceStart + cut.duration / 2
+        let expected = (rises[cut.videoID] ?? true) ? 20 + 5 * sourceTime : 230 - 5 * sourceTime
+        #expect(abs(actual - expected) < 25, "t=\(middle) 期待 \(expected) 実際 \(actual)")
+      }
     }
   }
 }
@@ -1162,7 +1185,10 @@ private func makePatternVideo(at url: URL, duration: Double, width: Int = 640, h
     mediaType: .video,
     outputSettings: [
       AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height,
-      AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 6_000_000]
+      AVVideoCompressionPropertiesKey: [
+        AVVideoAverageBitRateKey: 6_000_000,
+        AVVideoMaxKeyFrameIntervalKey: Int(framesPerSecond)
+      ]
     ]
   )
   let adaptor = AVAssetWriterInputPixelBufferAdaptor(
@@ -1176,19 +1202,7 @@ private func makePatternVideo(at url: URL, duration: Double, width: Int = 640, h
   #expect(writer.startWriting())
   writer.startSession(atSourceTime: .zero)
   for frame in 0..<Int(duration * Double(framesPerSecond)) {
-    // 書き込みが失敗したとき、または進まないまま長く待ったときは、理由をつけて失敗させる(待ち続けない)。
-    let deadline = Date().addingTimeInterval(60)
-    while !input.isReadyForMoreMediaData {
-      try Task.checkCancellation()
-      if writer.status == .failed || writer.status == .cancelled {
-        throw writer.error ?? CocoaError(.fileWriteUnknown)
-      }
-      if Date() > deadline {
-        writer.cancelWriting()
-        throw TestVideoWriteStalled(frame: frame, status: writer.status.rawValue)
-      }
-      try await Task.sleep(for: .milliseconds(2))
-    }
+    try await waitForVideoInputReady(input, writer: writer, frame: frame)
     var pixelBuffer: CVPixelBuffer?
     CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
     guard let pixelBuffer else { throw CocoaError(.fileWriteUnknown) }
@@ -1208,7 +1222,7 @@ private func makePatternVideo(at url: URL, duration: Double, width: Int = 640, h
     }
   }
   input.markAsFinished()
-  await writer.finishWriting()
+  try await AsyncAVFoundation.finishWriting(writer)
   #expect(writer.status == .completed)
 }
 

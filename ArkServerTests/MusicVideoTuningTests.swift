@@ -541,7 +541,7 @@ private func audioPeaks(
   }
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(5)))
 struct MusicVideoLookCompositionTests {
   private let render = MusicVideoRenderSettings(width: 320, height: 180, framesPerSecond: 30)
 
@@ -1189,7 +1189,7 @@ private struct WaitTimeout: Error, CustomStringConvertible {
   var description: String { "待っていた状態にならないまま時間切れ: \(label)" }
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(5)))
 @MainActor
 struct MusicVideoTuningViewModelTests {
   private struct Harness {

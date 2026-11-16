@@ -738,7 +738,10 @@ struct SceneExtractionTests {
       outputSettings: [
         AVVideoCodecKey: AVVideoCodecType.h264,
         AVVideoWidthKey: width,
-        AVVideoHeightKey: height
+        AVVideoHeightKey: height,
+        AVVideoCompressionPropertiesKey: [
+          AVVideoMaxKeyFrameIntervalKey: Int(framesPerSecond)
+        ]
       ]
     )
     let adaptor = AVAssetWriterInputPixelBufferAdaptor(
@@ -755,19 +758,7 @@ struct SceneExtractionTests {
     writer.startSession(atSourceTime: .zero)
 
     for frameIndex in 0..<frameCount {
-      // 書き込みが失敗したとき、または進まないまま長く待ったときは、理由をつけて失敗させる(待ち続けない)。
-      let deadline = Date().addingTimeInterval(60)
-      while !input.isReadyForMoreMediaData {
-        try Task.checkCancellation()
-        if writer.status == .failed || writer.status == .cancelled {
-          throw writer.error ?? CocoaError(.fileWriteUnknown)
-        }
-        if Date() > deadline {
-          writer.cancelWriting()
-          throw TestVideoWriteStalled(frame: frameIndex, status: writer.status.rawValue)
-        }
-        try await Task.sleep(for: .milliseconds(2))
-      }
+      try await waitForVideoInputReady(input, writer: writer, frame: frameIndex)
       var pixelBuffer: CVPixelBuffer?
       let status = CVPixelBufferCreate(
         kCFAllocatorDefault,
@@ -803,7 +794,7 @@ struct SceneExtractionTests {
     }
 
     input.markAsFinished()
-    await writer.finishWriting()
+    try await AsyncAVFoundation.finishWriting(writer)
     #expect(writer.status == .completed)
   }
 

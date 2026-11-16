@@ -76,34 +76,35 @@ nonisolated struct BeatAnalyzer: Sendable {
     output.alwaysCopiesSampleData = false
     guard reader.canAdd(output) else { throw BeatAnalyzerError.cannotAddOutput }
     reader.add(output)
-    guard reader.startReading() else {
-      throw BeatAnalyzerError.readerFailed(reader.error?.localizedDescription ?? "開始できませんでした．")
-    }
-
-    var samples: [Float] = []
-    while let sampleBuffer = output.copyNextSampleBuffer() {
-      try Task.checkCancellation()
-      guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
-      let byteCount = CMBlockBufferGetDataLength(dataBuffer)
-      guard byteCount > 0, byteCount.isMultiple(of: MemoryLayout<Float>.size) else { continue }
-      var chunk = [Float](repeating: 0, count: byteCount / MemoryLayout<Float>.size)
-      let status = chunk.withUnsafeMutableBytes { destination in
-        CMBlockBufferCopyDataBytes(
-          dataBuffer,
-          atOffset: 0,
-          dataLength: byteCount,
-          destination: destination.baseAddress!
-        )
+    let outputBox = UncheckedSendableBox(output)
+    return try await AsyncAVFoundation.runReader(
+      reader,
+      queueLabel: "arkserver.beat-analyzer",
+      startError: { BeatAnalyzerError.readerFailed($0) },
+      readError: { BeatAnalyzerError.readerFailed($0) }
+    ) { isCancelled in
+      var samples: [Float] = []
+      while let sampleBuffer = outputBox.value.copyNextSampleBuffer() {
+        if isCancelled() { throw CancellationError() }
+        guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
+        let byteCount = CMBlockBufferGetDataLength(dataBuffer)
+        guard byteCount > 0, byteCount.isMultiple(of: MemoryLayout<Float>.size) else { continue }
+        var chunk = [Float](repeating: 0, count: byteCount / MemoryLayout<Float>.size)
+        let status = chunk.withUnsafeMutableBytes { destination in
+          CMBlockBufferCopyDataBytes(
+            dataBuffer,
+            atOffset: 0,
+            dataLength: byteCount,
+            destination: destination.baseAddress!
+          )
+        }
+        guard status == kCMBlockBufferNoErr else {
+          throw BeatAnalyzerError.readerFailed("PCMバッファをコピーできませんでした．")
+        }
+        samples.append(contentsOf: chunk)
       }
-      guard status == kCMBlockBufferNoErr else {
-        throw BeatAnalyzerError.readerFailed("PCMバッファをコピーできませんでした．")
-      }
-      samples.append(contentsOf: chunk)
+      return samples
     }
-    if reader.status == .failed {
-      throw BeatAnalyzerError.readerFailed(reader.error?.localizedDescription ?? "原因不明です．")
-    }
-    return samples
   }
 
   // MARK: - 解析本体(ファイル非依存。単体テストはここを直接呼ぶ)

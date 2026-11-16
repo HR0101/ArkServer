@@ -69,54 +69,57 @@ nonisolated struct VisualAnalyzer: Sendable {
       )
     }
 
-    guard reader.startReading() else {
-      throw VisualAnalyzerError.readerFailed(reader.error?.localizedDescription ?? "開始できませんでした．")
-    }
-
     let sampleInterval = 1 / max(1, settings.analysisFramesPerSecond)
-    var nextSampleTime = 0.0
-    var previousLuminance: [Float]?
-    var previousEdges: [Float]?
-    var previousFrameDiff = 0.0
-    var rawPoints: [RawVisualPoint] = []
+    let outputBox = UncheckedSendableBox(output)
+    let rawPoints = try await AsyncAVFoundation.runReader(
+      reader,
+      queueLabel: "arkserver.visual-analyzer",
+      startError: { VisualAnalyzerError.readerFailed($0) },
+      readError: { VisualAnalyzerError.readerFailed($0) }
+    ) { isCancelled in
+      var nextSampleTime = 0.0
+      var previousLuminance: [Float]?
+      var previousEdges: [Float]?
+      var previousFrameDiff = 0.0
+      var rawPoints: [RawVisualPoint] = []
 
-    while let sampleBuffer = output.copyNextSampleBuffer() {
-      try Task.checkCancellation()
-      let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
-      guard presentationTime.isFinite, presentationTime + 0.000_001 >= nextSampleTime else {
-        continue
-      }
-      nextSampleTime = presentationTime + sampleInterval
+      while let sampleBuffer = outputBox.value.copyNextSampleBuffer() {
+        if isCancelled() { throw CancellationError() }
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        guard presentationTime.isFinite, presentationTime + 0.000_001 >= nextSampleTime else {
+          continue
+        }
+        nextSampleTime = presentationTime + sampleInterval
 
-      guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-        continue
-      }
-      let frame = try makeLuminanceFrame(from: pixelBuffer)
-      let edges = makeEdges(from: frame.values, width: frame.width, height: frame.height)
-      let luminanceDiff = meanAbsoluteDifference(frame.values, previousLuminance)
-      let edgeDiff = meanAbsoluteDifference(edges, previousEdges)
-      let frameDiff = luminanceWeight * luminanceDiff + edgeWeight * edgeDiff
-      let motionDelta = frameDiff - previousFrameDiff
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+          continue
+        }
+        let frame = try makeLuminanceFrame(from: pixelBuffer)
+        let edges = makeEdges(from: frame.values, width: frame.width, height: frame.height)
+        let luminanceDiff = meanAbsoluteDifference(frame.values, previousLuminance)
+        let edgeDiff = meanAbsoluteDifference(edges, previousEdges)
+        let frameDiff = luminanceWeight * luminanceDiff + edgeWeight * edgeDiff
+        let motionDelta = frameDiff - previousFrameDiff
 
-      rawPoints.append(
-        RawVisualPoint(
-          time: max(0, presentationTime),
-          frameDiff: frameDiff,
-          meanLuminance: frame.meanLuminance,
-          luminanceDiff: luminanceDiff,
-          edgeDiff: edgeDiff,
-          motionSpike: max(0, motionDelta),
-          motionDrop: max(0, -motionDelta)
+        rawPoints.append(
+          RawVisualPoint(
+            time: max(0, presentationTime),
+            frameDiff: frameDiff,
+            meanLuminance: frame.meanLuminance,
+            luminanceDiff: luminanceDiff,
+            edgeDiff: edgeDiff,
+            motionSpike: max(0, motionDelta),
+            motionDrop: max(0, -motionDelta)
+          )
         )
-      )
-      previousLuminance = frame.values
-      previousEdges = edges
-      previousFrameDiff = frameDiff
+        previousLuminance = frame.values
+        previousEdges = edges
+        previousFrameDiff = frameDiff
+      }
+      return rawPoints
     }
 
-    if reader.status == .failed {
-      throw VisualAnalyzerError.readerFailed(reader.error?.localizedDescription ?? "原因不明です．")
-    }
+    try Task.checkCancellation()
     return makeFeaturePoints(from: rawPoints)
   }
 
