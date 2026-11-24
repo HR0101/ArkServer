@@ -108,13 +108,59 @@ struct AppUpdaterTests {
         #expect(AppRelease.trustedURL(URL(string: "https://github.com/HR0101/ArkServer/releases/download/v2/ArkServer.dmg")!, download: true))
     }
 
-    private func fixture() throws -> (AppUpdater, UserDefaults, URLSession, String) {
+    @Test func downloadReportsProgressAndSavesDMG() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("UpdaterDownloadTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (updater, defaults, session, suite) = try fixture(downloadsDirectory: directory)
+        defer { defaults.removePersistentDomain(forName: suite); session.invalidateAndCancel() }
+
+        let payload = Data(repeating: 0x5A, count: 64 * 1024)
+        UpdateMockProtocol.response = (200, payload, nil)
+        UpdateMockProtocol.chunkDelay = 0.03
+        defer { UpdateMockProtocol.chunkDelay = 0 }
+
+        let release = try JSONDecoder().decode(AppRelease.self, from: releaseJSON())
+        updater.download(release)
+
+        var observedProgress: [Double] = []
+        for _ in 0..<500 {
+            if let value = updater.progress {
+                observedProgress.append(value)
+            }
+            if !updater.isBusy { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+
+        guard case .downloaded(let savedURL) = updater.state else {
+            Issue.record("Expected downloaded state, got \(updater.state)")
+            return
+        }
+        #expect(savedURL.deletingLastPathComponent().resolvingSymlinksInPath() == directory.resolvingSymlinksInPath())
+        #expect(savedURL.lastPathComponent.hasPrefix("ArkServer-") && savedURL.pathExtension == "dmg")
+        #expect(try Data(contentsOf: savedURL) == payload)
+        #expect(!observedProgress.isEmpty)
+        #expect((observedProgress.last ?? 0) > 0)
+    }
+
+    private func fixture(downloadsDirectory: URL? = nil) throws -> (AppUpdater, UserDefaults, URLSession, String) {
         let suite = "UpdaterTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [UpdateMockProtocol.self]
         let session = URLSession(configuration: configuration)
-        return (AppUpdater(defaults: defaults, session: session, version: "1.0", build: "1", presentsWindows: false), defaults, session, suite)
+        return (
+            AppUpdater(
+                defaults: defaults,
+                session: session,
+                version: "1.0",
+                build: "1",
+                presentsWindows: false,
+                downloadsDirectory: downloadsDirectory
+            ),
+            defaults,
+            session,
+            suite
+        )
     }
 
     private func finish(_ updater: AppUpdater) async {
@@ -136,15 +182,33 @@ struct AppUpdaterTests {
 
 private final class UpdateMockProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var response: (Int, Data, Error?) = (200, Data(), nil)
+    nonisolated(unsafe) static var chunkDelay: TimeInterval = 0
+    private let lock = NSLock()
+    private var isStopped = false
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let (status, data, error) = Self.response
+        let delay = Self.chunkDelay
         if let error { client?.urlProtocol(self, didFailWithError: error); return }
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+        let headers = delay > 0 && !data.isEmpty ? ["Content-Length": "\(data.count)"] : nil
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        guard delay > 0, data.count > 1 else {
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        let split = data.count / 2
+        client?.urlProtocol(self, didLoad: data.prefix(split))
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.lock.withLock({ !self.isStopped }) else { return }
+            self.client?.urlProtocol(self, didLoad: data.suffix(from: split))
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
     }
-    override func stopLoading() {}
+    override func stopLoading() {
+        lock.withLock { isStopped = true }
+    }
 }
