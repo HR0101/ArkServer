@@ -96,6 +96,8 @@ final class AppUpdater: ObservableObject {
     static let skippedKey = "updates.skippedVersion"
     static let lastCheckKey = "updates.lastCheck"
     static let latestURL = URL(string: "https://api.github.com/repos/HR0101/ArkServer/releases/latest")!
+    /// 進捗をこの幅（1%）以上進んだときだけ画面に反映し，再描画の回数を抑える
+    static let progressReportStep = 0.01
 
     enum State: Equatable {
         case idle, checking, available(AppRelease), upToDate, noRelease
@@ -116,12 +118,15 @@ final class AppUpdater: ObservableObject {
     private var window: NSWindow?
     private var manualRequested = false
     private let presentsWindows: Bool
+    private let downloadsDirectory: URL?
 
     init(defaults: UserDefaults = .standard, session: URLSession = .shared,
-         version: String? = nil, build: String? = nil, presentsWindows: Bool = true) {
+         version: String? = nil, build: String? = nil, presentsWindows: Bool = true,
+         downloadsDirectory: URL? = nil) {
         self.defaults = defaults
         self.session = session
         self.presentsWindows = presentsWindows
+        self.downloadsDirectory = downloadsDirectory
         currentVersion = version ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
         currentBuild = build ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
         automaticallyChecks = defaults.object(forKey: Self.automaticKey) as? Bool ?? true
@@ -209,26 +214,44 @@ final class AppUpdater: ObservableObject {
                 let delegate = UpdateDownloadProgress { [weak self] value in
                     Task { @MainActor in
                         guard self?.downloadID == id, case .downloading = self?.state else { return }
-                        self?.progress = value
+                        self?.applyProgress(value)
                     }
                 }
+                defer { delegate.invalidate() }
                 let (temporary, response) = try await session.download(for: URLRequest(url: url, timeoutInterval: 300), delegate: delegate)
                 defer { try? FileManager.default.removeItem(at: temporary) }
                 try Task.checkCancellation()
                 guard let http = response as? HTTPURLResponse else { throw AppUpdateError.response }
                 try Self.validateHTTP(http)
-                let directory = try FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                let directory = try downloadsDirectory ?? FileManager.default.url(
+                    for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+                )
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 let destination = directory.appendingPathComponent("ArkServer-\(UUID().uuidString).dmg")
                 try FileManager.default.moveItem(at: temporary, to: destination)
                 downloadID = nil
                 state = .downloaded(destination)
-                NSWorkspace.shared.activateFileViewerSelecting([destination])
+                if presentsWindows {
+                    NSWorkspace.shared.activateFileViewerSelecting([destination])
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 downloadID = nil
                 state = .failed("ダウンロードできませんでした。\(error.localizedDescription) リリースページから手動でダウンロードできます。")
             }
         }
+    }
+
+    /// 通知の順序は保証されないため，進捗は増える方向にだけ更新する
+    private func applyProgress(_ value: Double?) {
+        // nil（サイズ不明）は開始時に設定済みなので，ここでは確定値だけを扱う．
+        // 確定値の後に nil へ戻すとバーがスピナーに戻ってしまうため無視する
+        guard let value else { return }
+        if let current = progress {
+            guard value > current else { return }
+            guard value >= 1 || value - current >= Self.progressReportStep else { return }
+        }
+        progress = value
     }
 
     func cancelDownload() {
@@ -259,12 +282,49 @@ final class AppUpdater: ObservableObject {
     }
 }
 
-private final class UpdateDownloadProgress: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    nonisolated let report: @Sendable (Double?) -> Void
-    nonisolated init(report: @escaping @Sendable (Double?) -> Void) { self.report = report }
-    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
-    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                               didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        report(totalBytesExpectedToWrite > 0 ? min(1, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)) : nil)
+/// Observes download progress from the created `URLSessionTask`.
+///
+/// Async `URLSession.download(for:delegate:)` only forwards `URLSessionTaskDelegate`
+/// callbacks and skips `URLSessionDownloadDelegate.didWriteData`, so we observe `task.progress`.
+private nonisolated final class UpdateDownloadProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var observation: NSKeyValueObservation?
+    private let report: @Sendable (Double?) -> Void
+
+    init(report: @escaping @Sendable (Double?) -> Void) {
+        self.report = report
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+        let report = self.report
+        let next = task.progress.observe(\.fractionCompleted, options: [.initial, .new]) { [weak task] progress, _ in
+            // 旧実装の totalBytesExpectedToWrite > 0 と同じく，応答の予定サイズで「サイズ不明」を判定する
+            let expectedBytes = task?.countOfBytesExpectedToReceive ?? 0
+            let fraction: Double? = expectedBytes > 0
+                ? min(1, max(0, progress.fractionCompleted))
+                : nil
+            report(fraction)
+        }
+        let previous = lock.withLock { () -> NSKeyValueObservation? in
+            defer { observation = next }
+            return observation
+        }
+        previous?.invalidate()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        invalidate()
+    }
+
+    func invalidate() {
+        let current = lock.withLock { () -> NSKeyValueObservation? in
+            defer { observation = nil }
+            return observation
+        }
+        current?.invalidate()
     }
 }
