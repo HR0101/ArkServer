@@ -293,7 +293,7 @@ class LibraryViewModel: ObservableObject {
     /// 排他ロックを取得する。取得したファイル記述子は意図的に開いたままにし、
     /// プロセス終了（クラッシュ含む）でOSが自動解放するのに任せる。
     nonisolated static func acquireInstanceLock(at url: URL) -> Bool {
-        let fd = open(url.path, O_CREAT | O_RDWR, 0o644)
+        let fd = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
         guard fd != -1 else { return true } // ロックファイル自体を作れない環境では起動を妨げない
         if flock(fd, LOCK_EX | LOCK_NB) != 0 {
             close(fd)
